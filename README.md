@@ -2,6 +2,9 @@
 
 アーケードのバーサス系 3D 対戦アクション（2機のロボットが射撃と格闘で撃ち合うタイプ）。ブラウザで動き、スマホのタッチ操作に対応。
 
+**▶ 遊ぶ: https://yutianqiao7-dev.github.io/assault-frame-vs/**
+（スマホのブラウザでそのまま動きます。ダウンロード不要）
+
 現状は **1 vs 1 vs CPU（トレーニング）** まで。
 
 ```bash
@@ -83,6 +86,16 @@ src/
 ```
 
 チューニングはほぼ全部 `src/config.js` に集約してある。
+
+### デプロイ
+
+`main` がソース、`gh-pages` がビルド済みサイト。更新するときは:
+
+```bash
+npm run build
+```
+
+そのあと `dist` を `gh-pages` ブランチに force push する（`vite.config.js` の `base` が `/assault-frame-vs/` を付けるので、そのままのパスで動く）。
 
 ---
 
