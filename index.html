@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#05070d" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>ASSAULT FRAME VS</title>
+<link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- ===== HUD ===== -->
+  <div id="hud" class="hidden">
+
+    <!-- 戦力ゲージ -->
+    <div id="costRow">
+      <div class="costSide" id="costAlly">
+        <div class="costLabel">ALLY</div>
+        <div class="costBar"><i></i></div>
+        <div class="costNum">6000</div>
+      </div>
+      <div id="battleTimer">180</div>
+      <div class="costSide right" id="costFoe">
+        <div class="costNum">6000</div>
+        <div class="costBar"><i></i></div>
+        <div class="costLabel">FOE</div>
+      </div>
+    </div>
+
+    <!-- ロックオンレティクル -->
+    <svg id="reticle" viewBox="0 0 100 100" aria-hidden="true">
+      <g class="ret-g">
+        <path d="M50 12 L50 26 M50 74 L50 88 M12 50 L26 50 M74 50 L88 50" />
+        <rect x="26" y="26" width="48" height="48" rx="4" />
+      </g>
+    </svg>
+    <div id="offscreenArrow"></div>
+    <div id="foeMarker"><span class="fname">ENEMY</span><i class="fhp"><b></b></i></div>
+
+    <!-- 自機ステータス -->
+    <div id="selfPanel">
+      <div class="mechName" id="selfName">機体</div>
+      <div class="hpWrap"><i id="hpBar"></i><i id="hpDelay"></i><span id="hpNum">680</span></div>
+      <div class="boostWrap"><i id="boostBar"></i><span id="boostTxt">BOOST</span></div>
+      <div id="awakeWrap"><i id="awakeBar"></i><span>AWAKE</span></div>
+      <div id="ammoRow"></div>
+    </div>
+
+    <div id="comboPop"></div>
+    <div id="centerMsg"></div>
+  </div>
+
+  <!-- ===== タッチ操作 ===== -->
+  <div id="touch" class="hidden">
+    <div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div>
+    <div id="btnPad">
+      <button class="gb" data-act="melee">格闘</button>
+      <button class="gb" data-act="shot">射撃</button>
+      <button class="gb" data-act="jump">ジャンプ</button>
+      <button class="gb sm" data-act="sub">サブ</button>
+      <button class="gb sm" data-act="sp_shot">特射</button>
+      <button class="gb sm" data-act="sp_melee">特格</button>
+      <button class="gb tiny" data-act="step">ステップ</button>
+      <button class="gb tiny awk" data-act="awake">覚醒</button>
+    </div>
+  </div>
+
+  <!-- ===== タイトル ===== -->
+  <div id="gate">
+    <div class="gateInner">
+      <h1>ASSAULT FRAME<span>VS</span></h1>
+      <p class="sub">1 vs 1 &nbsp;/&nbsp; TRAINING</p>
+      <div id="lvPick">
+        <button class="lv on" data-lv="easy">EASY</button>
+        <button class="lv" data-lv="normal">NORMAL</button>
+        <button class="lv" data-lv="hard">HARD</button>
+      </div>
+      <button id="startBtn">START</button>
+      <div class="keys">
+        <b>キーボード</b>
+        <span>移動 WASD</span><span>射撃 J</span><span>格闘 K</span><span>ジャンプ L / Space</span>
+        <span>ステップ Shift</span><span>サブ U</span><span>特射 I</span><span>特格 O</span><span>覚醒 Q</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="result" class="hidden"><div class="resInner"><h2 id="resTitle">WIN</h2><button id="againBtn">もう一度</button></div></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
