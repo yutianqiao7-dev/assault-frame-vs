@@ -257,7 +257,7 @@ export const MECHS = {
                   count:3, bitTime:3.2, bitOrbit:16, bitFireGap:0.75 },
       sp_shot:  { label:'LZ', name:'照射ビーム', kind:'laser',
                   ammo:1, reload:11.0, dmg:26, down:0.55, tickGap:0.12,
-                  cooldown:2.2, fireDelay:0.42, duration:1.5, range:150, radius:1.6, turn:1.5 },
+                  cooldown:2.2, fireDelay:0.42, duration:1.5, range:150, radius:1.0, turn:1.5 },
       sp_melee: { label:'HD', name:'高速突撃', kind:'melee_special',
                   ammo:1, reload:8.0, dmg:135, down:5.0,
                   cooldown:1.3, rushSpeed:64, rushRange:56, rushTime:1.0 },

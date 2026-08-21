@@ -1,10 +1,14 @@
 import * as THREE from 'three';
 import { buildMech } from './mechmodel.js';
+import { Trail } from './glow.js';
 import * as C from './config.js';
 
 const _v = new THREE.Vector3();
 const _f = new THREE.Vector3();
 const _r = new THREE.Vector3();
+const _tb = new THREE.Vector3();
+const _te = new THREE.Vector3();
+const _hit = new THREE.Vector3();
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -23,6 +27,10 @@ export class Mech {
 
     this.root = buildMech(data.palette, data.shape);
     world.scene.add(this.root);
+
+    // 振りの軌跡。刃はワールド座標で拾うのでシーン直下に置く
+    this.trail = new Trail(7, data.palette.beam, 0.16);
+    world.scene.add(this.trail.mesh);
 
     this.pos = new THREE.Vector3(0, 0, 0);
     this.vel = new THREE.Vector3();
@@ -158,6 +166,7 @@ export class Mech {
       this.deadT -= dt;
       if (this.deadT <= 0) this.respawn();
       this.root.visible = false;
+      this.trail.reset();
       return;
     }
     this.root.visible = true;
@@ -166,6 +175,7 @@ export class Mech {
     this.think(dt, inp);
     this.physics(dt);
     this.pose(dt);
+    this.updateTrail();
   }
 
   // ---------- 入力処理 ----------
@@ -625,7 +635,8 @@ export class Mech {
     this.downValue = Math.min(this.downValue + downVal, C.DOWN_LIMIT * 2);
     this.downT = C.DOWN_DECAY_DELAY;
 
-    this.world.fx.hit(this.pos, kind === 'melee' ? '#ffd166' : this.d.palette.beam);
+    _hit.copy(this.pos); _hit.y += 1.6;   // 足元ではなく機体中心で光らせる
+    this.world.fx.hit(_hit, kind === 'melee' ? '#ffd166' : this.d.palette.beam);
 
     if (this.hp <= 0) { this.die(attacker); return dmg; }
 
@@ -692,6 +703,18 @@ export class Mech {
       this.pos.set(t.pos.x + Math.cos(a) * 60, 22, t.pos.z + Math.sin(a) * 60);
     } else this.pos.set(0, 22, 0);
     this.setState('free');
+  }
+
+  // ---------- 軌跡 ----------
+  updateTrail() {
+    const u = this.root.userData;
+    const swinging = this.st === 'swing' && u.saber.visible;
+    if (!swinging) { this.trail.reset(); return; }
+    u.bladeBase.updateWorldMatrix(true, false);
+    u.bladeEnd.updateWorldMatrix(true, false);
+    _tb.setFromMatrixPosition(u.bladeBase.matrixWorld);
+    _te.setFromMatrixPosition(u.bladeEnd.matrixWorld);
+    this.trail.push(_tb, _te);
   }
 
   // ---------- ポーズ ----------

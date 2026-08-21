@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GRAVITY, ARENA_R } from './config.js';
+import { makeBeamBody, makeGlowBall, glowMaterial, makeSoftSprite } from './glow.js';
 
 const _v = new THREE.Vector3();
 const _d = new THREE.Vector3();
@@ -8,6 +9,7 @@ const _seg = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _e = new THREE.Vector3();
 
 // 点 c と線分 a→b の最短距離の2乗（1フレームで判定をすり抜けるのを防ぐ）
 function distSqPointSegment(c, a, b) {
@@ -32,10 +34,13 @@ export class Projectiles {
     this.bulletGeo = new THREE.SphereGeometry(0.16, 6, 5);
     this.shellGeo = new THREE.SphereGeometry(0.32, 8, 6);
     this.bitGeo = new THREE.BoxGeometry(0.34, 0.34, 0.9);
-    this.laserGeo = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true);
+    // 発射口が細く、遠方に向かって広がる形。真後ろから見たときに
+    // ただの円盤に見えないよう、開口とセグメントを調整している
+    this.laserGeo = new THREE.CylinderGeometry(1, 0.28, 1, 20, 1, true);
     this.laserGeo.rotateX(Math.PI / 2);
     this.laserGeo.translate(0, 0, 0.5);   // 原点から +Z 方向に伸びる
     this.matCache = new Map();
+    this.shotProto = new Map();
   }
 
   mat(color) {
@@ -130,13 +135,9 @@ export class Projectiles {
     }
 
     const color = (w.kind === 'beam' || w.kind === 'spread') ? owner.d.palette.beam
-      : w.kind === 'bullet' ? '#ffe08a' : '#ffb45c';
-    const geo = (w.kind === 'beam' || w.kind === 'spread') ? this.beamGeo
-      : w.kind === 'bullet' ? this.bulletGeo : this.shellGeo;
-    const mesh = new THREE.Mesh(geo, this.mat(color));
+      : w.kind === 'bullet' ? '#ffd98a' : '#ffb45c';
+    const mesh = this.makeShotMesh(w, color);
     mesh.position.copy(from);
-    if (w.kind === 'beam') mesh.scale.z = 1.6;
-    if (w.kind === 'spread') mesh.scale.set(0.7, 0.7, 0.9);
 
     const p = {
       mesh, owner, w, key,
@@ -154,6 +155,46 @@ export class Projectiles {
     return p;
   }
 
+  // 弾の見た目。白いコア＋色付きグローで、ブルームが乗ると発光体に見える
+  makeShotMesh(w, color) {
+    const key = `${w.kind}|${color}|${w.radius}`;
+    if (!this.shotProto.has(key)) {
+      let proto;
+      if (w.kind === 'beam' || w.kind === 'spread') {
+        const len = w.kind === 'beam' ? 5.2 : 3.0;
+        proto = makeBeamBody(len, Math.max(w.radius, 0.34), color, { coreRatio: 0.4, glowOpacity: 0.4 });
+      } else if (w.kind === 'bullet') {
+        proto = new THREE.Group();
+        proto.add(makeGlowBall(Math.max(w.radius, 0.22), '#ffffff', 0.95));
+        proto.add(makeGlowBall(Math.max(w.radius, 0.22) * 2.4, color, 0.28));
+        // 曳光弾らしく後ろに尾を引く
+        const tail = new THREE.Mesh(
+          new THREE.ConeGeometry(Math.max(w.radius, 0.2) * 0.9, 2.2, 6),
+          glowMaterial(color, 0.22)
+        );
+        tail.rotation.x = -Math.PI / 2; tail.position.z = -1.1;
+        proto.add(tail);
+      } else {
+        // 砲弾: 芯は実体、周りに熱を持たせる
+        proto = new THREE.Group();
+        const body = new THREE.Mesh(
+          new THREE.CapsuleGeometry(w.radius * 0.6, w.radius * 1.4, 3, 8),
+          new THREE.MeshStandardMaterial({ color: 0x9aa2ae, metalness: 0.75, roughness: 0.35 })
+        );
+        body.rotation.x = Math.PI / 2;
+        proto.add(body);
+        proto.add(makeGlowBall(w.radius * 1.5, color, 0.4));
+        const flame = new THREE.Mesh(
+          new THREE.ConeGeometry(w.radius * 0.8, 2.6, 7), glowMaterial(color, 0.3)
+        );
+        flame.rotation.x = -Math.PI / 2; flame.position.z = -1.4;
+        proto.add(flame);
+      }
+      this.shotProto.set(key, proto);
+    }
+    return this.shotProto.get(key).clone();
+  }
+
   // ---- 照射ビーム ----
   spawnLaser(owner, key) {
     const w = owner.d.weapons[key];
@@ -164,11 +205,13 @@ export class Projectiles {
 
     const color = owner.d.palette.beam;
     const core = new THREE.Mesh(this.laserGeo, new THREE.MeshBasicMaterial({
-      color: new THREE.Color('#ffffff'), transparent: true, opacity: 0.95, depthWrite: false,
+      color: new THREE.Color('#ffffff'), transparent: true, opacity: 0.95,
+      depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
     }));
     const glow = new THREE.Mesh(this.laserGeo, new THREE.MeshBasicMaterial({
       color: new THREE.Color(color), transparent: true, opacity: 0.45,
       depthWrite: false, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, toneMapped: false,
     }));
     const grp = new THREE.Group();
     grp.add(core); grp.add(glow);
@@ -261,9 +304,9 @@ export class Projectiles {
               this.world.hit(p.owner, m, p.w.dmg * 0.6, p.w.down * 0.5, _d, 5, 'shell');
             }
           }
-        } else if (hitSomething) {
-          this.world.fx.hit(p.pos, '#ffffff');
         }
+        // 命中エフェクトは takeHit 側で出しているので、ここでは出さない
+        // (二重に出すと加算合成で真っ白に飛ぶ)
         this.world.scene.remove(p.mesh);
         this.list.splice(i, 1);
       }
@@ -385,36 +428,58 @@ export class FX {
     this.items.push({ mesh, life, max: life, fn });
   }
 
-  _ball(pos, color, r, life, grow, up = 0) {
-    const m = new THREE.Mesh(this.sphereGeo, new THREE.MeshBasicMaterial({
-      color: new THREE.Color(color), transparent: true, opacity: 0.9, depthWrite: false,
-    }));
+  _ball(pos, color, r, life, grow, up = 0, additive = true) {
+    // 発光はスプライト（中心が明るく外へ消えるので輪郭が出ない）、
+    // 煙だけは加算にせず球メッシュのまま
+    const m = additive
+      ? makeSoftSprite(color, 0.9)
+      : new THREE.Mesh(this.sphereGeo, new THREE.MeshBasicMaterial({
+          color: new THREE.Color(color), transparent: true, opacity: 0.9, depthWrite: false,
+        }));
     m.position.copy(pos);
-    m.scale.setScalar(r);
+    m.scale.setScalar(r * (additive ? 1.6 : 1));   // スプライトは板なので少し大きめに
+    const base = r * (additive ? 1.6 : 1);
     this.add(m, life, (it, p) => {
-      it.mesh.scale.setScalar(r * (1 + grow * p));
+      it.mesh.scale.setScalar(base * (1 + grow * p));
       it.mesh.material.opacity = 0.9 * (1 - p);
       if (up) it.mesh.position.y += up * 0.016;
     });
   }
 
-  muzzle(pos, color) { this._ball(pos, color, 0.38, 0.09, 1.1); }
+  muzzle(pos, color) {
+    this._ball(pos, '#ffffff', 0.22, 0.06, 1.2);
+    this._ball(pos, color, 0.32, 0.09, 1.5);
+  }
   hit(pos, color) {
-    this._ball(pos, color, 0.7, 0.24, 2.6);
-    this._ball(pos, '#ffffff', 0.4, 0.14, 3.0);
+    this._ball(pos, color, 0.55, 0.24, 2.6);
+    this._ball(pos, '#ffffff', 0.3, 0.12, 3.0);
+    const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({
+      color: new THREE.Color(color), transparent: true, opacity: 0.8, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+    }));
+    ring.position.copy(pos);
+    ring.rotation.x = Math.random() * Math.PI; ring.rotation.z = Math.random() * Math.PI;
+    this.add(ring, 0.2, (it, p) => {
+      it.mesh.scale.setScalar(0.5 + p * 2.6);
+      it.mesh.material.opacity = 0.45 * (1 - p);
+    });
   }
   explodeSmall(pos, color) {
     this._ball(pos, color, 1.2, 0.4, 3.2);
     this._ball(pos, '#fff2c0', 0.7, 0.22, 3.6);
   }
   explode(pos) {
-    this._ball(pos, '#fff0a0', 2.0, 0.5, 3.0, 20);
-    this._ball(pos, '#ff8a3c', 3.0, 0.75, 3.4, 14);
-    this._ball(pos, '#552211', 4.0, 1.1, 2.6, 8);
+    // 機体の中心で炸裂させる。足元(pos.y=0)のままだと下半分が地面に埋まる
+    _e.copy(pos); _e.y += 1.6;
+    this._ball(_e, '#fffbe0', 0.9, 0.26, 2.0, 6);
+    this._ball(_e, '#fff0a0', 1.3, 0.46, 2.6, 18);
+    this._ball(_e, '#ff8a3c', 1.9, 0.7, 2.8, 12);
+    this._ball(_e, '#ff5a20', 2.6, 0.95, 2.2, 8);
     const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({
       color: 0xffd08a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false,
+      blending: THREE.AdditiveBlending, toneMapped: false,
     }));
-    ring.position.copy(pos); ring.position.y += 1.2;
+    ring.position.copy(_e);
     this.add(ring, 0.6, (it, p) => {
       it.mesh.scale.setScalar(2 + p * 26);
       it.mesh.material.opacity = 0.85 * (1 - p);
@@ -423,6 +488,7 @@ export class FX {
   burst(pos, color) {
     const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({
       color: new THREE.Color(color), transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
+      blending: THREE.AdditiveBlending, toneMapped: false,
     }));
     ring.position.copy(pos); ring.position.y += 1.4;
     this.add(ring, 0.7, (it, p) => {

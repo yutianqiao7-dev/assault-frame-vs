@@ -152,9 +152,9 @@ export function buildArena(scene, renderer) {
   scene.environmentIntensity = 0.38;
   pmrem.dispose();
 
-  const hemi = new THREE.HemisphereLight(0x9ec4ff, 0x232935, 0.8);
+  const hemi = new THREE.HemisphereLight(0x9ec4ff, 0x232935, 0.6);
   scene.add(hemi);
-  const key = new THREE.DirectionalLight(0xe8f2ff, 1.55);
+  const key = new THREE.DirectionalLight(0xe8f2ff, 1.75);
   key.position.set(60, 110, 40);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
@@ -165,9 +165,18 @@ export function buildArena(scene, renderer) {
   key.shadow.camera.top = S; key.shadow.camera.bottom = -S;
   key.shadow.bias = -0.0012;
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0x6f9ade, 0.45);
+  const fill = new THREE.DirectionalLight(0x6f9ade, 0.4);
   fill.position.set(-70, 40, -60);
   scene.add(fill);
+
+  // リムライト: 背後やや上から当てて機体の輪郭を背景から切り離す。
+  // これが無いと暗い背景に暗い機体が沈んでプラモに見えない。
+  const rim = new THREE.DirectionalLight(0xa8ccff, 1.25);
+  rim.position.set(-40, 55, -120);
+  scene.add(rim);
+  const rim2 = new THREE.DirectionalLight(0xffd9a8, 0.55);
+  rim2.position.set(90, 30, -70);
+  scene.add(rim2);
 
   return { grp, key, ground, buildings };
 }

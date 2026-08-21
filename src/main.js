@@ -7,6 +7,10 @@ import { ChaseCamera } from './camera.js';
 import { Input } from './input.js';
 import { AI } from './ai.js';
 import { HUD } from './hud.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 const app = document.getElementById('app');
 const isMobile = matchMedia('(pointer: coarse)').matches || innerWidth < 760;
@@ -30,6 +34,23 @@ const chase = new ChaseCamera(camera);
 
 const arena = buildArena(scene, renderer);
 chase.colliders = arena.buildings;   // カメラがビルにめり込まないように
+
+// ---------- ポストプロセス ----------
+// ビーム・サーベル・スラスターは加算合成の発光体として描いているので、
+// ブルームが無いとただの明るい単色に見える。threshold を上げて
+// 発光体だけ拾い、機体や地面はにじませない。
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(1, 1),
+  isMobile ? 0.42 : 0.55,   // strength
+  isMobile ? 0.45 : 0.55,   // radius
+  0.86,                     // threshold: 発光体だけ拾う
+);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function renderFrame() { composer.render(); }
 
 // ---------- world ----------
 const fx = new FX(scene);
@@ -75,7 +96,7 @@ const game = {
   over: false,
 
   init(selfId = 'brave', foeId = 'garm', level = 'normal') {
-    for (const m of world.mechs) scene.remove(m.root);
+    for (const m of world.mechs) { scene.remove(m.root); if (m.trail) scene.remove(m.trail.mesh); }
     world.mechs.length = 0;
     world.projectiles.clear();
     fx.clear();
@@ -120,6 +141,11 @@ function resize() {
   if (w === viewW && h === viewH) return;
   viewW = w; viewH = h;
   renderer.setSize(w, h, false);           // updateStyle=false (CSSで100%指定済み)
+  composer.setSize(w, h);
+  // ブルームはぼかしなので内部解像度を落としても見た目がほぼ変わらない。
+  // スマホでは半分にして塗りつぶし負荷を 1/4 にする
+  const bq = isMobile ? 0.5 : 1;
+  bloom.setSize(Math.max(1, Math.floor(w * bq)), Math.max(1, Math.floor(h * bq)));
   camera.aspect = w / h;
   const portrait = h > w;
   chase.portrait = portrait;
@@ -160,7 +186,7 @@ function frame(now) {
   last = now;
   if (dt > 0.1) dt = 0.1;      // タブ復帰時の巨大 dt をクランプ
   tick(dt);
-  renderer.render(scene, camera);
+  renderFrame();
 }
 
 let level = localStorage.getItem('gvs.level') || 'easy';
@@ -261,9 +287,9 @@ document.getElementById('againBtn').addEventListener('click', () => {
 // ---------- デバッグ (開発時のみ。本番ビルドでは丸ごと消える) ----------
 if (import.meta.env.DEV) {
   window.__dbg = {
-    THREE, scene, camera, renderer, game, world, hud, input, chase,
-    step(dt = 1 / 60, n = 1) { for (let i = 0; i < n; i++) tick(dt); renderer.render(scene, camera); },
+    THREE, scene, camera, renderer, composer, bloom, game, world, hud, input, chase,
+    step(dt = 1 / 60, n = 1) { for (let i = 0; i < n; i++) tick(dt); renderFrame(); },
     sim(n, dt = 1 / 60, onFrame) { for (let i = 0; i < n; i++) { if (onFrame) onFrame(i); tick(dt); } },
-    render() { renderer.render(scene, camera); },
+    render() { renderFrame(); },
   };
 }
