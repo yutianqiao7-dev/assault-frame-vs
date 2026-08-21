@@ -153,10 +153,6 @@ function frame(now) {
   renderer.render(scene, camera);
 }
 
-// ---------- 起動 ----------
-game.init();
-requestAnimationFrame(frame);
-
 let level = localStorage.getItem('gvs.level') || 'easy';
 for (const b of document.querySelectorAll('#lvPick .lv')) {
   b.classList.toggle('on', b.dataset.lv === level);
@@ -167,8 +163,74 @@ for (const b of document.querySelectorAll('#lvPick .lv')) {
   });
 }
 
+// ---------- 機体選択 ----------
+const MOVE_ROWS = [
+  ['射撃', (m) => m.weapons.shot],
+  ['サブ', (m) => m.weapons.sub],
+  ['特射', (m) => m.weapons.sp_shot],
+  ['特格', (m) => m.weapons.sp_melee],
+];
+
+let selfId = localStorage.getItem('gvs.self') || 'brave';
+let foeId = localStorage.getItem('gvs.foe') || 'garm';
+if (!C.MECHS[selfId]) selfId = 'brave';
+if (!C.MECHS[foeId]) foeId = 'garm';
+
+function describe(id) {
+  const m = C.MECHS[id];
+  const el = document.getElementById('mechInfo');
+  const moves = MOVE_ROWS.map(([label, get]) => {
+    const w = get(m);
+    return w ? `<div><i>${label}</i><span>${w.name}</span></div>` : '';
+  }).join('');
+  const melee = C.MELEE_DIRS.map((dk) => {
+    const v = m.melee[dk];
+    return v ? `<div><i>${v.label}</i><span>${v.stages.length}段 / 総${v.stages.reduce((a, s) => a + s.dmg, 0)}</span></div>` : '';
+  }).join('');
+  el.innerHTML = `
+    <div class="miTop"><span class="miName">${m.name}</span><span class="miRole">${m.role}</span></div>
+    <div class="miDesc">${m.desc}</div>
+    <div class="miStats">
+      <span><b>コスト</b>${m.cost}</span><span><b>耐久</b>${m.hp}</span>
+      <span><b>歩き</b>${m.walk}</span><span><b>BD</b>${m.bdSpeed}</span>
+    </div>
+    <div class="miMoves">${moves}${melee}</div>`;
+}
+
+function buildPicker(containerId, isFoe) {
+  const box = document.getElementById(containerId);
+  box.innerHTML = '';
+  for (const id of C.MECH_ORDER) {
+    const m = C.MECHS[id];
+    const b = document.createElement('button');
+    b.className = 'mp' + (isFoe ? ' foeSel' : '');
+    b.dataset.id = id;
+    b.innerHTML = `<span class="mpChip">${m.cost}</span>
+                   <span class="mpName">${m.name}</span>
+                   <span class="mpCost">${m.role}</span>`;
+    b.addEventListener('click', () => {
+      if (isFoe) { foeId = id; localStorage.setItem('gvs.foe', id); }
+      else { selfId = id; localStorage.setItem('gvs.self', id); describe(id); }
+      for (const o of box.children) o.classList.toggle('on', o === b);
+      if (!game.running) game.init(selfId, foeId, level);   // 背景プレビューを更新
+    });
+    box.appendChild(b);
+  }
+  const cur = isFoe ? foeId : selfId;
+  for (const o of box.children) o.classList.toggle('on', o.dataset.id === cur);
+}
+
+buildPicker('selfPick', false);
+buildPicker('foePick', true);
+describe(selfId);
+
+// ---------- 起動 ----------
+// タイトルの背景には選択中の組み合わせを出す
+game.init(selfId, foeId, level);
+requestAnimationFrame(frame);
+
 function startBattle() {
-  game.init('brave', 'garm', level);
+  game.init(selfId, foeId, level);
   game.running = true;
   last = performance.now();
   hud.message('BATTLE START', '#8fd6ff');

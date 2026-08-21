@@ -21,7 +21,7 @@ export class Mech {
     this.world = world;
     this.isPlayer = false;
 
-    this.root = buildMech(data.palette, data.build);
+    this.root = buildMech(data.palette, data.shape);
     world.scene.add(this.root);
 
     this.pos = new THREE.Vector3(0, 0, 0);
@@ -72,6 +72,9 @@ export class Mech {
 
     this.meleeStage = -1;
     this.meleeKey = 'melee';
+    this.meleeVar = data.melee.n;   // 現在出している格闘の派生 (n / side / fwd)
+    this.meleeDir = 'n';
+    this.meleeSide = 1;
     this.fireKey = null;
     this.fireT = -1;
     this.stepGround = false;
@@ -204,7 +207,9 @@ export class Mech {
     }
 
     // --- ステップ ---
-    const canStep = !this.overheat && this.boost >= d.stepCost &&
+    const firing = this.fireKey && d.weapons[this.fireKey];
+    const lockedByLaser = this.st === 'fire' && firing && firing.kind === 'laser' && this.stT < this.fireCancelT;
+    const canStep = !this.overheat && !lockedByLaser && this.boost >= d.stepCost &&
       (this.st === 'free' || this.st === 'fire' || this.st === 'swing' || this.st === 'step' && this.stT > 0.18);
     if (want('step') && canStep) {
       consume('step');
@@ -223,7 +228,7 @@ export class Mech {
 
     // --- 攻撃入力 ---
     if (this.canAct) {
-      if (want('melee') && this.tryMelee()) { consume('melee'); return; }
+      if (want('melee') && this.tryMelee(meleeDirOf(inp), inp)) { consume('melee'); return; }
       if (want('sp_melee') && this.trySpMelee()) { consume('sp_melee'); return; }
       if (want('sub') && this.tryFire('sub')) { consume('sub'); return; }
       if (want('sp_shot') && this.tryFire('sp_shot')) { consume('sp_shot'); return; }
@@ -336,16 +341,24 @@ export class Mech {
   }
 
   // ---------- 射撃 ----------
-  get fireCancelT() { return 0.22; }
+  get fireCancelT() {
+    // 照射ビームを撃っている間はキャンセル不可（そのぶんリスクが高い）
+    const w = this.fireKey && this.d.weapons[this.fireKey];
+    if (w && w.kind === 'laser') return w.fireDelay + w.duration;
+    return 0.22;
+  }
 
   tryFire(key) {
     const w = this.d.weapons[key];
     if (!w || w.kind === 'melee_special') return false;
-    if (this.ammo[key] <= 0 || this.cool[key] > 0) return false;
-    this.ammo[key]--;
+    // ファンネルは1回の使用で count 基ぶん消費する
+    const cost = w.kind === 'funnel' ? (w.count || 1) : 1;
+    if (this.ammo[key] < cost || this.cool[key] > 0) return false;
+    this.ammo[key] -= cost;
     this.cool[key] = w.cooldown;
-    this.pendingShot = { key, t: w.fireDelay };
-    this.setState('fire', w.fireDelay + w.cooldown * 0.85);
+    // 照射ビームは発射中ずっと動けない
+    const hold = w.kind === 'laser' ? w.duration : 0;
+    this.setState('fire', w.fireDelay + hold + w.cooldown * 0.85);
     this.fireKey = key;
     this.fireT = w.fireDelay;
     this.grounded = this.grounded && this.vel.y <= 0;
@@ -361,17 +374,19 @@ export class Mech {
     this.ammo.sp_melee--;
     this.cool.sp_melee = w.cooldown;
     this.meleeKey = 'sp_melee';
+    this.meleeVar = null;
     this.meleeStage = -1;
     this.setState('rush', w.rushTime);
     this.root.userData.saber.visible = true;
     return true;
   }
 
-  tryMelee() {
+  // dir: 'n' / 'side' / 'fwd'
+  tryMelee(dir, inp) {
     const m = this.d.melee;
     if (!this.target || !this.target.alive) return false;
-    // 連撃（追撃も踏み込むぶんブーストを食う）
-    if (this.st === 'swing' && this.meleeKey === 'melee' && this.meleeStage < m.stages.length - 1) {
+    // 連撃（追撃も踏み込むぶんブーストを食う）。派生は初段のものを引き継ぐ
+    if (this.st === 'swing' && this.meleeKey === 'melee' && this.meleeStage < this.meleeVar.stages.length - 1) {
       if (!this.payMeleeBoost(0.55)) return false;
       this.meleeStage++;
       this.startSwing();
@@ -379,9 +394,13 @@ export class Mech {
     }
     if (this.distTo(this.target) > m.range) return false;
     if (!this.payMeleeBoost()) return false;
+    const v = m[dir] || m.n;
     this.meleeKey = 'melee';
+    this.meleeDir = dir;
+    this.meleeVar = v;
+    this.meleeSide = inp && inp.mx < 0 ? -1 : 1;
     this.meleeStage = -1;
-    this.setState('rush', m.rushTime);
+    this.setState('rush', v.rushTime);
     this.root.userData.saber.visible = true;
     return true;
   }
@@ -410,7 +429,7 @@ export class Mech {
     if (!this.drainMeleeBoost(dt)) { this.endMelee(); return; }
     const t = this.target;
     const isSp = this.meleeKey === 'sp_melee';
-    const conf = isSp ? this.d.weapons.sp_melee : this.d.melee;
+    const conf = isSp ? this.d.weapons.sp_melee : (this.meleeVar || this.d.melee.n);
     const hitR = isSp ? 4.6 : this.d.melee.hitRadius;
     if (!t || !t.alive) { this.endMelee(); return; }
 
@@ -429,8 +448,16 @@ export class Mech {
 
     const sp = (conf.rushSpeed ?? 44) * this.speedMul;
     // 水平は間合いまで、垂直は相手の高さに合わせる
-    const hx = horiz > 1e-4 ? dx / horiz : 0;
-    const hz = horiz > 1e-4 ? dz / horiz : 0;
+    let hx = horiz > 1e-4 ? dx / horiz : 0;
+    let hz = horiz > 1e-4 ? dz / horiz : 0;
+    // 横格闘は回り込みながら寄る（間合いが詰まるほど直進に戻す）
+    if (!isSp && conf.arc) {
+      const swing = conf.arc * this.meleeSide * clamp((horiz - hitR) / 26, 0, 1);
+      const px = -hz, pz = hx;
+      const nx = hx + px * swing, nz = hz + pz * swing;
+      const nl = Math.hypot(nx, nz) || 1;
+      hx = nx / nl; hz = nz / nl;
+    }
     this.vel.set(hx * sp, clamp(dy * 2.6, -sp * 0.6, sp * 0.6), hz * sp);
     this.grounded = false;
 
@@ -441,7 +468,7 @@ export class Mech {
     const isSp = this.meleeKey === 'sp_melee';
     const stage = isSp
       ? { dmg: this.d.weapons.sp_melee.dmg, down: this.d.weapons.sp_melee.down, dur: 0.75, knock: 22, pull: false }
-      : this.d.melee.stages[this.meleeStage];
+      : (this.meleeVar || this.d.melee.n).stages[this.meleeStage];
     this.setState('swing', stage.dur);
     this.swingStage = stage;
     this.swingHit = false;
@@ -465,7 +492,10 @@ export class Mech {
       if (prev > 0 && this.fireT <= 0) {
         const w = this.d.weapons[this.fireKey];
         this.world.spawnShot(this, this.fireKey);
-        if (w.burst && w.burst > 1) this.burstQueue = { key: this.fireKey, n: w.burst - 1, t: w.burstGap, gap: w.burstGap };
+        // burst(実弾の連射) と missile(斉射) を同じ仕組みで撃つ
+        const rep = (w.kind === 'missile' ? w.count : w.burst) || 1;
+        const gap = (w.kind === 'missile' ? w.launchGap : w.burstGap) || 0.09;
+        if (rep > 1) this.burstQueue = { key: this.fireKey, n: rep - 1, t: gap, gap };
       }
     }
     // 格闘ヒット判定
@@ -715,6 +745,14 @@ export class Mech {
     // 無敵中の点滅
     this.root.visible = this.invuln > 0 ? Math.sin(this.invuln * 34) > -0.25 : true;
   }
+}
+
+// スティックの倒し方で格闘の派生を決める（横 → 横格、前 → 前格、それ以外 → N格）
+function meleeDirOf(inp) {
+  const ax = Math.abs(inp.mx), ay = Math.abs(inp.my);
+  if (ax > 0.45 && ax >= ay) return 'side';
+  if (inp.my > 0.45) return 'fwd';
+  return 'n';
 }
 
 const BUFFERED = ['melee', 'sp_melee', 'sub', 'sp_shot', 'step'];
