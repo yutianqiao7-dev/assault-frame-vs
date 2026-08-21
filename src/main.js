@@ -49,6 +49,16 @@ const world = {
     hud.message(victim === game.self ? 'DOWN...' : 'DESTROYED', victim === game.self ? '#ff6b74' : '#ffcf4d');
     if (game.cost[side] <= 0) game.finish(side === 'ally' ? 'lose' : 'win');
   },
+  // ステップすると自分に向かってきている敵弾の誘導が切れる。
+  // このジャンルで「ステップが防御の要」になる仕組みで、これが無いと
+  // 誘導が強い射撃から距離を取っても逃げ切れない。
+  breakHoming(mech) {
+    let n = 0;
+    for (const p of world.projectiles.list) {
+      if (p.owner.team !== mech.team && p.homing > 0) { p.homing = 0; n++; }
+    }
+    return n;
+  },
   msg(t) { hud.message(t, '#ffcf4d'); },
 };
 world.projectiles = new Projectiles(world);

@@ -49,6 +49,7 @@ export class Mech {
 
     // 被弾側
     this.downValue = 0;
+    this.staggerAccum = 0;     // よろけまでの蓄積（射撃用）
     this.downT = 0;            // ダウン値の減衰待ち
     this.invuln = 0;
 
@@ -142,7 +143,7 @@ export class Mech {
     }
 
     // ダウン値の自然減衰
-    if (this.downT > 0) { this.downT -= dt; if (this.downT <= 0) this.downValue = 0; }
+    if (this.downT > 0) { this.downT -= dt; if (this.downT <= 0) { this.downValue = 0; this.staggerAccum = 0; } }
     // コンボ切れ
     if (this.comboT > 0) { this.comboT -= dt; if (this.comboT <= 0) { this.comboHits = 0; this.comboDmg = 0; } }
 
@@ -196,7 +197,15 @@ export class Mech {
 
     // --- ダウン / 起き上がり ---
     if (this.st === 'down') {
-      if (this.grounded && this.stT > C.DOWN_TIME) { this.setState('wake', 0.45); this.invuln = C.WAKEUP_INVULN; this.downValue = 0; }
+      // 接地して規定時間、または上限時間を過ぎたら（空中でも）起き上がる
+      if ((this.grounded && this.stT > C.DOWN_TIME) || this.stT > C.DOWN_MAX_TIME) {
+        this.setState('wake', 0.45);
+        // 起き上がりモーション中に無敵を使い切ると、動ける頃には無敵が無い。
+        // モーションぶんを足して「動ける状態で WAKEUP_INVULN 秒」を保証する
+        this.invuln = 0.45 + C.WAKEUP_INVULN;
+        this.downValue = 0;
+        this.staggerAccum = 0;
+      }
       return;
     }
     if (this.st === 'wake') { if (this.stT >= this.stDur) this.setState('free'); return; }
@@ -222,6 +231,7 @@ export class Mech {
       this.setState('step', d.stepDur);
       if (this.stepGround) this.vel.y = 0;
       else this.vel.y = Math.max(this.vel.y * 0.2, 0);
+      this.world.breakHoming(this);   // 誘導切り
       this.world.fx.stepPuff(this.pos, this.stepDir);
       return;
     }
@@ -595,7 +605,13 @@ export class Mech {
   takeHit(attacker, rawDmg, downVal, dir, knock, kind) {
     if (!this.alive || this.invuln > 0) return 0;
 
-    const scale = C.COMBO_SCALE[Math.min(attacker.comboHits, C.COMBO_SCALE.length - 1)];
+    // すでにダウンしている相手への追撃は「ダウン追撃」。
+    // ダウン時間を延長せず、打ち上げ直しもせず、ダメージも大きく落とす。
+    // (ここを分けないと、特格→射撃連打で永久に起き上がれないハメになる)
+    const alreadyDown = this.st === 'down';
+
+    let scale = C.COMBO_SCALE[Math.min(attacker.comboHits, C.COMBO_SCALE.length - 1)];
+    if (alreadyDown) scale *= C.DOWN_HIT_SCALE;
     const dmg = Math.round(rawDmg * scale * attacker.dmgMul);
     this.hp = Math.max(0, this.hp - dmg);
     this.hitFlash = 1;
@@ -606,23 +622,42 @@ export class Mech {
     attacker.gainAwake(dmg * C.AWAKE_GAIN_DEAL);
     this.gainAwake(dmg * C.AWAKE_GAIN_TAKE);
 
-    this.downValue += downVal;
+    this.downValue = Math.min(this.downValue + downVal, C.DOWN_LIMIT * 2);
     this.downT = C.DOWN_DECAY_DELAY;
 
     this.world.fx.hit(this.pos, kind === 'melee' ? '#ffd166' : this.d.palette.beam);
 
     if (this.hp <= 0) { this.die(attacker); return dmg; }
 
+    if (alreadyDown) {
+      // ダウン継続。軽く小突くだけで、浮かせ直さない
+      this.vel.addScaledVector(dir, knock * 0.12);
+      this.vel.y = Math.min(this.vel.y, 1.5);
+      return dmg;
+    }
+
     if (this.downValue >= C.DOWN_LIMIT || knock > 12) {
+      // 強制ダウンはしっかり吹き飛ばす。密着のまま撃ち続けられるとハメになる
+      const push = Math.max(knock, C.DOWN_KNOCK_MIN) + 8;
       this.setState('down');
-      this.vel.set(dir.x * (knock + 8), 9 + knock * 0.35, dir.z * (knock + 8));
+      this.vel.set(dir.x * push, 9 + knock * 0.35, dir.z * push);
       this.grounded = false;
+      this.staggerAccum = 0;
       this.root.userData.saber.visible = false;
-    } else {
-      this.setState('stagger', downVal >= 1 ? 0.55 : 0.28);
+      return dmg;
+    }
+
+    // 格闘は必ずよろける。射撃は蓄積がしきい値を超えたときだけ
+    this.staggerAccum += downVal;
+    if (kind === 'melee' || this.staggerAccum >= C.STAGGER_THRESHOLD) {
+      this.staggerAccum = 0;
+      this.setState('stagger', downVal >= 1 ? 0.55 : 0.34);
       this.vel.addScaledVector(dir, knock * 0.9);
       if (this.grounded) this.vel.y = 1.5;
       this.grounded = false;
+    } else {
+      // 蓄積中はのけぞらない（ダメージとダウン値だけ入る）
+      this.vel.addScaledVector(dir, knock * 0.25);
     }
     return dmg;
   }

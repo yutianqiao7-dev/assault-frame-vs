@@ -12,6 +12,12 @@ export const TEAM_COST = 6000;      // 戦力ゲージ
 export const DOWN_LIMIT = 5.0;      // ダウン値がこれ以上で強制ダウン
 export const DOWN_DECAY_DELAY = 1.6;// 最後に食らってからこの秒数でダウン値リセット開始
 export const DOWN_TIME = 1.5;       // ダウン中(受け身不可)の時間
+export const DOWN_MAX_TIME = 3.2;   // ここを過ぎたら空中でも強制的に起き上がる(ハメ防止)
+export const DOWN_HIT_SCALE = 0.32; // ダウン追撃のダメージ補正
+// 射撃がよろけを取るのに必要なダウン値の蓄積。マシンガンのような
+// 単発の軽い弾が毎発のけぞらせて拘束し続けるのを防ぐ（格闘は常によろける）
+export const STAGGER_THRESHOLD = 1.0;
+export const DOWN_KNOCK_MIN = 11;   // 強制ダウン時の最低吹き飛ばし。密着で撃ち続けさせない
 export const WAKEUP_INVULN = 0.9;   // 起き上がり後の無敵
 
 // ヒット数ごとのダメージ補正(コンボ補正)
