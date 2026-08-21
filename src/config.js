@@ -29,6 +29,8 @@ export const BOOST_MAX = 100;
 export const OVERHEAT_LAND_LAG = 1.15; // オーバーヒート着地の硬直
 export const NORMAL_LAND_LAG   = 0.30; // 通常着地硬直
 export const STEP_LAND_LAG     = 0.14; // 着地ずらし相当
+export const GROUND_DASH_TIME  = 0.50; // 地上ブーストダッシュで浮き上がるまでの時間
+export const MELEE_DRAIN_MUL   = 0.75; // 格闘中のブースト消費 (bdDrain に対する倍率)
 
 // ===== 機体データ =====
 // weapons のキーは入力アクション名と一致させる: shot / sub / sp_shot / sp_melee
@@ -51,6 +53,7 @@ export const MECHS = {
     riseSpeed: 15,
     riseDrain: 27,
     airMove: 15,
+    meleeCost: 14,      // 格闘の踏み込みで消費するブースト
     boostRecover: 100,  // 着地時に全回復
     // 武装
     weapons: {
@@ -102,6 +105,7 @@ export const MECHS = {
     riseSpeed: 14.5,
     riseDrain: 26,
     airMove: 14,
+    meleeCost: 14,
     boostRecover: 100,
     weapons: {
       shot: {

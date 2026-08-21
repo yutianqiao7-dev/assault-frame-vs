@@ -75,6 +75,7 @@ export class Mech {
     this.fireKey = null;
     this.fireT = -1;
     this.stepGround = false;
+    this.groundDashT = 0;
     this.buf = null;
     this.bufT = 0;
     this.swingHit = true;
@@ -103,7 +104,9 @@ export class Mech {
     } else {
       _f.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     }
-    _r.set(_f.z, 0, -_f.x);
+    // 画面右 = cross(前方, 上) = (-f.z, 0, f.x)
+    // ここを (f.z, 0, -f.x) にすると左右が反転する
+    _r.set(-_f.z, 0, _f.x);
     return { f: _f, r: _r };
   }
 
@@ -230,7 +233,8 @@ export class Mech {
     // --- 格闘中 ---
     if (this.st === 'rush') { this.updateRush(dt); return; }
     if (this.st === 'swing') {
-      // 格闘中は空中で静止（重力なし）
+      // 格闘中は空中で静止（重力なし）。ブーストは吹かし続けているので消費する
+      this.drainMeleeBoost(dt);
       this.vel.x *= Math.pow(0.02, dt);
       this.vel.z *= Math.pow(0.02, dt);
       this.vel.y = lerp(this.vel.y, 0, 1 - Math.pow(0.02, dt));
@@ -269,24 +273,45 @@ export class Mech {
       return;
     }
 
+    if (!this.boosting) this.groundDashT = 0;
+
     if (this.boosting) {
-      // ブースト移動（空中／地上どちらからでも浮く）
       const sp = d.bdSpeed * this.speedMul;
+      // 地上ブーストダッシュ: 押し始めの GROUND_DASH_TIME は浮かずに地面を滑走する。
+      // 押し続けるとそのまま上昇へ移行。着地すると onLand でリセットされるので、
+      // 着地→即ブーストの流れでまた地上を滑れる。
+      const groundDash = this.grounded && moveLen > 0.2 && this.groundDashT < C.GROUND_DASH_TIME;
+      if (groundDash) this.groundDashT += dt;
+
       if (moveLen > 0.2) {
         _v.copy(f).multiplyScalar(inp.my / Math.max(1, moveLen)).addScaledVector(r, inp.mx / Math.max(1, moveLen));
         _v.normalize();
-        this.vel.x = lerp(this.vel.x, _v.x * sp, 1 - Math.pow(0.0008, dt));
-        this.vel.z = lerp(this.vel.z, _v.z * sp, 1 - Math.pow(0.0008, dt));
+        const k = 1 - Math.pow(groundDash ? 0.0003 : 0.0008, dt);
+        this.vel.x = lerp(this.vel.x, _v.x * sp, k);
+        this.vel.z = lerp(this.vel.z, _v.z * sp, k);
         this.boost -= d.bdDrain * dt;
       } else {
         this.vel.x *= Math.pow(0.05, dt);
         this.vel.z *= Math.pow(0.05, dt);
         this.boost -= d.riseDrain * 0.55 * dt;
       }
-      this.vel.y = lerp(this.vel.y, d.riseSpeed * this.speedMul, 1 - Math.pow(0.002, dt));
-      this.boost -= d.riseDrain * 0.45 * dt;
-      this.grounded = false;
-      if (this.boost <= 0) { this.boost = 0; this.overheat = true; this.boosting = false; }
+
+      if (groundDash) {
+        this.vel.y = 0;                       // 浮かない
+      } else {
+        this.vel.y = lerp(this.vel.y, d.riseSpeed * this.speedMul, 1 - Math.pow(0.002, dt));
+        this.boost -= d.riseDrain * 0.45 * dt;
+        this.grounded = false;
+      }
+
+      if (this.boost <= 0) {
+        this.boost = 0; this.overheat = true; this.boosting = false;
+        // 地上でオーバーヒートしたらその場で硬直（空中なら落下→着地時に硬直）
+        if (this.grounded) {
+          this.setState('land', C.OVERHEAT_LAND_LAG);
+          this.vel.x *= 0.2; this.vel.z *= 0.2;
+        }
+      }
     } else if (this.grounded) {
       const sp = d.walk * this.speedMul;
       if (moveLen > 0.2) {
@@ -332,6 +357,7 @@ export class Mech {
     if (!w || this.ammo.sp_melee <= 0 || this.cool.sp_melee > 0) return false;
     if (!this.target || !this.target.alive) return false;
     if (this.distTo(this.target) > w.rushRange) return false;
+    if (!this.payMeleeBoost()) return false;
     this.ammo.sp_melee--;
     this.cool.sp_melee = w.cooldown;
     this.meleeKey = 'sp_melee';
@@ -344,13 +370,15 @@ export class Mech {
   tryMelee() {
     const m = this.d.melee;
     if (!this.target || !this.target.alive) return false;
-    // 連撃
+    // 連撃（追撃も踏み込むぶんブーストを食う）
     if (this.st === 'swing' && this.meleeKey === 'melee' && this.meleeStage < m.stages.length - 1) {
+      if (!this.payMeleeBoost(0.55)) return false;
       this.meleeStage++;
       this.startSwing();
       return true;
     }
     if (this.distTo(this.target) > m.range) return false;
+    if (!this.payMeleeBoost()) return false;
     this.meleeKey = 'melee';
     this.meleeStage = -1;
     this.setState('rush', m.rushTime);
@@ -358,7 +386,28 @@ export class Mech {
     return true;
   }
 
+  // 格闘の踏み込みコスト。足りなければ出せない
+  payMeleeBoost(mul = 1) {
+    const cost = (this.d.meleeCost ?? 14) * mul;
+    if (this.overheat || this.boost < cost) return false;
+    this.boost -= cost;
+    return true;
+  }
+
+  // 突進・振り中の継続消費。切れたらオーバーヒートして格闘は中断
+  drainMeleeBoost(dt) {
+    if (this.overheat) return false;
+    this.boost -= this.d.bdDrain * C.MELEE_DRAIN_MUL * dt;
+    if (this.boost <= 0) {
+      this.boost = 0;
+      this.overheat = true;
+      return false;
+    }
+    return true;
+  }
+
   updateRush(dt) {
+    if (!this.drainMeleeBoost(dt)) { this.endMelee(); return; }
     const t = this.target;
     const isSp = this.meleeKey === 'sp_melee';
     const conf = isSp ? this.d.weapons.sp_melee : this.d.melee;
@@ -506,6 +555,7 @@ export class Mech {
     this.boost = C.BOOST_MAX;
     this.overheat = false;
     this.boosting = false;
+    this.groundDashT = 0;   // 着地→即ブーストでまた地上を滑れる
     this.vel.x *= 0.15; this.vel.z *= 0.15;
     this.setState('land', lag);
     this.world.fx.landPuff(this.pos);
