@@ -148,6 +148,7 @@ export class Projectiles {
       homing: w.homing || 0,
       gravity,
       aimOff,
+      color,
     };
     this.world.scene.add(mesh);
     this.list.push(p);
@@ -292,9 +293,21 @@ export class Projectiles {
         }
       }
 
+      // ビルに遮られたら、その手前で消す
+      let blocked = false;
+      const col = this.world.collision;
+      if (!hitSomething && col) {
+        const t = col.segmentHit(_prev.x, _prev.y, _prev.z, p.pos.x, p.pos.y, p.pos.z);
+        if (t >= 0) {
+          p.pos.lerpVectors(_prev, p.pos, Math.max(t - 0.01, 0));
+          blocked = true;
+        }
+      }
+
       const outside = p.pos.y < 0 || Math.hypot(p.pos.x, p.pos.z) > ARENA_R + 20;
-      if (hitSomething || p.life <= 0 || outside) {
-        if (p.w.splash && (hitSomething || p.pos.y < 0)) {
+      if (hitSomething || blocked || p.life <= 0 || outside) {
+        if (blocked) this.world.fx.hit(p.pos, p.color);   // ビルに着弾
+        if (p.w.splash && (hitSomething || blocked || p.pos.y < 0)) {
           this.world.fx.explodeSmall(p.pos, '#ffb45c');
           for (const m of mechs) {
             if (!m.alive || m.team === p.owner.team || m.invuln > 0) continue;
@@ -331,12 +344,18 @@ export class Projectiles {
       }
       b.grp.lookAt(from.x + b.dir.x, from.y + b.dir.y, from.z + b.dir.z);
 
-      // 見た目: 長さ range、太さは撃ち始めに膨らんでから絞る
+      // ビルに遮られたらそこまでで止める
+      const col = this.world.collision;
+      const reach = col
+        ? col.rayDistance(from.x, from.y, from.z, b.dir.x, b.dir.y, b.dir.z, w.range)
+        : w.range;
+
+      // 見た目: 長さ reach、太さは撃ち始めに膨らんでから絞る
       const p = 1 - b.life / w.duration;
       const flare = p < 0.12 ? p / 0.12 : (b.life < 0.18 ? b.life / 0.18 : 1);
       const rad = (w.radius || 1.4) * (0.55 + flare * 0.45);
-      b.core.scale.set(rad * 0.45, rad * 0.45, w.range);
-      b.glow.scale.set(rad, rad, w.range);
+      b.core.scale.set(rad * 0.45, rad * 0.45, reach);
+      b.glow.scale.set(rad, rad, reach);
       b.core.material.opacity = 0.95 * flare;
       b.glow.material.opacity = 0.45 * flare;
 
@@ -344,7 +363,7 @@ export class Projectiles {
       b.tick -= dt;
       if (b.tick <= 0 && b.life > 0) {
         b.tick = w.tickGap || 0.12;
-        _tmp.copy(from).addScaledVector(b.dir, w.range);
+        _tmp.copy(from).addScaledVector(b.dir, reach);
         for (const m of mechs) {
           if (m === b.owner || !m.alive || m.team === b.owner.team || m.invuln > 0) continue;
           _v.copy(m.pos); _v.y += 1.6;

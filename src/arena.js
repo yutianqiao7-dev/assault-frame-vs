@@ -107,6 +107,7 @@ export function buildArena(scene, renderer) {
 
   const place = [];
   const buildings = [];   // カメラのコリジョン用
+  const boxes = [];       // 機体・弾の当たり判定用 AABB
   for (let i = 0; i < 34; i++) {
     const a = rand() * Math.PI * 2;
     const r = 34 + rand() * (ARENA_R - 42);
@@ -124,6 +125,8 @@ export function buildArena(scene, renderer) {
     b.castShadow = true; b.receiveShadow = true;
     grp.add(b);
     buildings.push(b);
+    // 当たり判定用の AABB（ビルは軸に沿った箱で、必ず地面から生えている）
+    boxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, top: h });
 
     // 窓のライン
     const rows = Math.floor(h / 5);
@@ -178,7 +181,7 @@ export function buildArena(scene, renderer) {
   rim2.position.set(90, 30, -70);
   scene.add(rim2);
 
-  return { grp, key, ground, buildings };
+  return { grp, key, ground, buildings, boxes };
 }
 
 function mulberry(a) {

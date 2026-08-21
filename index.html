@@ -53,6 +53,16 @@
     <div id="centerMsg"></div>
   </div>
 
+  <!-- ===== 一時停止 ===== -->
+  <button id="pauseBtn" class="hidden" aria-label="メニュー">❚❚</button>
+  <div id="pauseMenu" class="hidden">
+    <div class="pauseInner">
+      <h2>PAUSE</h2>
+      <button id="resumeBtn">続ける</button>
+      <button id="toMenuBtn" class="sub">メインメニューへ</button>
+    </div>
+  </div>
+
   <!-- ===== タッチ操作 ===== -->
   <div id="touch" class="hidden">
     <div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div>
@@ -99,7 +109,15 @@
     </div>
   </div>
 
-  <div id="result" class="hidden"><div class="resInner"><h2 id="resTitle">WIN</h2><button id="againBtn">もう一度</button></div></div>
+  <div id="result" class="hidden">
+    <div class="resInner">
+      <h2 id="resTitle">WIN</h2>
+      <div class="resBtns">
+        <button id="againBtn">もう一度</button>
+        <button id="resultMenuBtn" class="sub">メインメニューへ</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

@@ -7,6 +7,7 @@ import { ChaseCamera } from './camera.js';
 import { Input } from './input.js';
 import { AI } from './ai.js';
 import { HUD } from './hud.js';
+import { Collision } from './collision.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -34,6 +35,7 @@ const chase = new ChaseCamera(camera);
 
 const arena = buildArena(scene, renderer);
 chase.colliders = arena.buildings;   // カメラがビルにめり込まないように
+const collision = new Collision(arena.boxes);
 
 // ---------- ポストプロセス ----------
 // ビーム・サーベル・スラスターは加算合成の発光体として描いているので、
@@ -55,7 +57,7 @@ function renderFrame() { composer.render(); }
 // ---------- world ----------
 const fx = new FX(scene);
 const world = {
-  scene, fx,
+  scene, fx, collision,
   projectiles: null,
   mechs: [],
   spawnShot(owner, key) { world.projectiles.spawn(owner, key); },
@@ -93,6 +95,7 @@ const game = {
   cost: { ally: C.TEAM_COST, foe: C.TEAM_COST },
   time: C.BATTLE_TIME,
   running: false,
+  paused: false,
   over: false,
 
   init(selfId = 'brave', foeId = 'garm', level = 'normal') {
@@ -125,6 +128,10 @@ const game = {
     if (this.over) return;
     this.over = true;
     this.running = false;
+    this.paused = false;
+    document.getElementById('pauseBtn').classList.add('hidden');
+    document.getElementById('pauseMenu').classList.add('hidden');
+    document.getElementById('touch').classList.add('hidden');
     const el = document.getElementById('result');
     const title = document.getElementById('resTitle');
     title.textContent = result === 'win' ? 'MISSION COMPLETE' : result === 'lose' ? 'MISSION FAILED' : 'DRAW';
@@ -156,6 +163,9 @@ addEventListener('resize', resize);
 resize();
 
 function tick(dt) {
+  // ポーズ中は入力もシミュレーションも進めない（描画だけ続く）
+  if (game.paused) { input.read(); input.endFrame(); return; }
+
   const inp = game.running ? input.read() : EMPTY_INPUT;
 
   if (game.running && !game.over) {
@@ -265,24 +275,58 @@ describe(selfId);
 game.init(selfId, foeId, level);
 requestAnimationFrame(frame);
 
+const $ = (id) => document.getElementById(id);
+
+function setPaused(on) {
+  game.paused = on;
+  $('pauseMenu').classList.toggle('hidden', !on);
+  $('touch').classList.toggle('hidden', on);   // 誤爆防止で操作系を隠す
+  last = performance.now();                    // 再開時に dt が飛ばないように
+}
+
 function startBattle() {
   game.init(selfId, foeId, level);
   game.running = true;
+  game.paused = false;
+  $('pauseMenu').classList.add('hidden');
+  $('pauseBtn').classList.remove('hidden');
+  $('result').classList.add('hidden');
+  $('touch').classList.remove('hidden');
   last = performance.now();
   hud.message('BATTLE START', '#8fd6ff');
 }
 
-document.getElementById('startBtn').addEventListener('click', () => {
-  document.getElementById('gate').classList.add('hidden');
+// 対戦をやめてタイトルへ戻る
+function toMainMenu() {
+  game.running = false;
+  game.paused = false;
+  game.over = false;
+  $('pauseMenu').classList.add('hidden');
+  $('pauseBtn').classList.add('hidden');
+  $('result').classList.add('hidden');
+  $('touch').classList.add('hidden');
+  hud.hide();
+  $('gate').classList.remove('hidden');
+  game.init(selfId, foeId, level);   // 背景を選択中の組み合わせに戻す
+  last = performance.now();
+}
+
+$('pauseBtn').addEventListener('click', () => { if (game.running && !game.over) setPaused(true); });
+$('resumeBtn').addEventListener('click', () => setPaused(false));
+$('toMenuBtn').addEventListener('click', toMainMenu);
+$('resultMenuBtn').addEventListener('click', toMainMenu);
+addEventListener('keydown', (e) => {
+  if (e.code !== 'Escape') return;
+  if (game.running && !game.over) setPaused(!game.paused);
+});
+
+$('startBtn').addEventListener('click', () => {
+  $('gate').classList.add('hidden');
   hud.show();
-  document.getElementById('touch').classList.remove('hidden');
   startBattle();
 });
 
-document.getElementById('againBtn').addEventListener('click', () => {
-  document.getElementById('result').classList.add('hidden');
-  startBattle();
-});
+$('againBtn').addEventListener('click', startBattle);
 
 // ---------- デバッグ (開発時のみ。本番ビルドでは丸ごと消える) ----------
 if (import.meta.env.DEV) {

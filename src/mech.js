@@ -550,11 +550,24 @@ export class Mech {
       this.vel.x *= 0.2; this.vel.z *= 0.2;
     }
 
-    // 接地（格闘の動作中は着地しない）
+    // ビルの側面で止める。屋上より上にいるときは素通りする。
+    // 先に横を解決しておけば、床の判定は「足元にある屋上」を見るだけで済む。
+    const col = this.world.collision;
+    if (col) {
+      const before = this.pos.x + this.pos.z;
+      col.pushOut(this.pos, MECH_RADIUS);
+      if (this.pos.x + this.pos.z !== before) {
+        // 壁に当たったぶんの速度を殺す（張り付いて加速し続けないように）
+        this.vel.x *= 0.15; this.vel.z *= 0.15;
+      }
+    }
+
+    // 接地（格闘の動作中は着地しない）。床は地面かビルの屋上
+    const floor = col ? col.floorAt(this.pos.x, this.pos.z) : C.GROUND_Y;
     const meleeLocked = this.st === 'rush' || this.st === 'swing';
     const wasAir = !this.grounded;
-    if (this.pos.y <= C.GROUND_Y) {
-      this.pos.y = C.GROUND_Y;
+    if (this.pos.y <= floor) {
+      this.pos.y = floor;
       if (meleeLocked) {
         this.grounded = false;
         if (this.vel.y < 0) this.vel.y = 0;
@@ -591,8 +604,9 @@ export class Mech {
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
     const sh = this.root.userData.shadow;
-    sh.position.y = -this.pos.y + 0.03;
-    const k = clamp(1 - this.pos.y / 40, 0.25, 1);
+    const shFloor = col ? col.floorAt(this.pos.x, this.pos.z) : C.GROUND_Y;
+    sh.position.y = shFloor - this.pos.y + 0.03;
+    const k = clamp(1 - (this.pos.y - shFloor) / 40, 0.25, 1);
     sh.scale.setScalar(k);
     sh.material.opacity = 0.34 * k;
   }
@@ -812,6 +826,8 @@ function meleeDirOf(inp) {
   if (inp.my > 0.45) return 'fwd';
   return 'n';
 }
+
+const MECH_RADIUS = 1.35;   // 機体をこの半径の円柱として壁に当てる
 
 const BUFFERED = ['melee', 'sp_melee', 'sub', 'sp_shot', 'step'];
 const BUFFER_TIME = 0.35;

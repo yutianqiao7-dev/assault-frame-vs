@@ -149,6 +149,38 @@ body{
   width:54px;height:54px;font-size:11px;
 }
 
+/* ---------- 一時停止 ---------- */
+#pauseBtn{
+  position:fixed;z-index:25;
+  left:calc(12px + var(--sal));top:calc(46px + var(--sat));
+  width:44px;height:44px;padding:0;
+  border-radius:6px;border:1px solid rgba(160,205,255,.35);
+  background:rgba(12,22,40,.6);color:#a8c6e8;
+  font-family:inherit;font-size:13px;letter-spacing:.1em;line-height:1;
+}
+#pauseBtn:active{background:rgba(70,150,240,.7);color:#fff;}
+
+#pauseMenu{
+  position:fixed;inset:0;z-index:38;display:flex;align-items:center;justify-content:center;
+  background:rgba(4,8,16,.72);backdrop-filter:blur(3px);
+}
+.pauseInner{text-align:center;padding:24px;display:flex;flex-direction:column;gap:12px;align-items:center;}
+.pauseInner h2{
+  margin:0 0 10px;font-size:26px;letter-spacing:.3em;font-weight:800;opacity:.8;
+}
+#pauseMenu button,#result .resBtns button{
+  font-family:inherit;font-size:16px;letter-spacing:.16em;font-weight:700;
+  padding:13px 40px;border-radius:4px;border:2px solid #6fb4ff;
+  background:linear-gradient(180deg,rgba(60,130,220,.35),rgba(20,50,100,.5));color:#eaf4ff;
+  min-width:220px;
+}
+#pauseMenu button:active,#result .resBtns button:active{background:#4a90e2;color:#04101f;}
+#pauseMenu button.sub,#result .resBtns button.sub{
+  border-color:#41597e;color:#9fb6d4;font-size:14px;padding:11px 32px;
+  background:rgba(16,28,48,.6);
+}
+.resBtns{display:flex;flex-direction:column;gap:10px;align-items:center;}
+
 /* ---------- ゲート / リザルト ---------- */
 #gate,#result{
   position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;

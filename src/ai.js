@@ -25,6 +25,8 @@ export class AI {
     this.holdBoost = false;
     this.reactT = 0;
     this.dodgeCool = 0;
+    this.stuckT = 0;
+    this.lastX = 0; this.lastZ = 0;
   }
 
   update(dt) {
@@ -78,6 +80,21 @@ export class AI {
       }
     }
 
+    // ---- 壁に引っかかっていないか ----
+    // ビルに押し戻され続けると同じ方向に張り付いたままになるので、
+    // ほとんど動けていない状態が続いたら回り込む向きを変える
+    const movedSq = (m.pos.x - this.lastX) ** 2 + (m.pos.z - this.lastZ) ** 2;
+    this.lastX = m.pos.x; this.lastZ = m.pos.z;
+    if (movedSq < 0.004 && m.alive && !m.busy) {
+      this.stuckT += dt;
+      if (this.stuckT > 0.5) {
+        this.stuckT = 0;
+        this.strafe *= -1;
+        this.decideT = 0.8;
+        i.jump = true;               // 上に逃げる
+      }
+    } else this.stuckT = 0;
+
     // ---- 覚醒 ----
     if (m.awakeReady && (hpRate < 0.55 || t.hp / t.maxHp < 0.3) && Math.random() < 0.04) i.awake = true;
 
@@ -89,7 +106,7 @@ export class AI {
       if (dist < m.d.melee.range * 0.85 && Math.random() < L.meleeWant) {
         if (m.ammo.sp_melee > 0 && Math.random() < 0.3) i.sp_melee = true;
         else i.melee = true;
-      } else if (facing > 0.85) {
+      } else if (facing > 0.85 && this.hasLineOfSight()) {
         const r = Math.random();
         if (dist < 60 && m.ammo.sub > 0 && r < 0.18) i.sub = true;
         else if (dist < 55 && m.ammo.sp_shot > 0 && r < 0.28) i.sp_shot = true;
@@ -100,6 +117,14 @@ export class AI {
     if (!i.shot && m.st === 'fire') i.shot = false;
 
     return i;
+  }
+
+  // 敵との間にビルが無いか
+  hasLineOfSight() {
+    const col = this.world.collision;
+    if (!col) return true;
+    const m = this.m, t = m.target;
+    return col.clearLine(m.pos.x, m.pos.y + 2.2, m.pos.z, t.pos.x, t.pos.y + 1.6, t.pos.z);
   }
 
   facingRate(t) {
