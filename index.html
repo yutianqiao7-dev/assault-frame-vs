@@ -49,6 +49,7 @@
       <div id="ammoRow"></div>
     </div>
 
+    <div id="netPing" class="hidden"></div>
     <div id="comboPop"></div>
     <div id="centerMsg"></div>
   </div>
@@ -82,7 +83,12 @@
   <div id="gate">
     <div class="gateInner">
       <h1>ASSAULT FRAME<span>VS</span></h1>
-      <p class="sub">1 vs 1 &nbsp;/&nbsp; TRAINING</p>
+      <p class="sub">1 vs 1</p>
+
+      <div id="modePick">
+        <button class="md on" data-mode="cpu">CPU戦</button>
+        <button class="md" data-mode="net">通信対戦</button>
+      </div>
 
       <div class="pickBlock">
         <div class="pickLabel">自機</div>
@@ -100,12 +106,44 @@
         <button class="lv" data-lv="normal">NORMAL</button>
         <button class="lv" data-lv="hard">HARD</button>
       </div>
+
+      <div id="netPick" class="hidden">
+        <p class="netHelp">同じ機体選択の画面で、片方が「部屋を作る」、もう片方がその4文字を入れます。</p>
+        <div class="netBtns">
+          <button id="hostBtn">部屋を作る</button>
+          <button id="joinBtn" class="sub">部屋に入る</button>
+        </div>
+      </div>
+
       <button id="startBtn">START</button>
       <div class="keys">
         <b>キーボード</b>
         <span>移動 WASD</span><span>射撃 J</span><span>格闘 K（← →で横格 / ↑で前格）</span><span>ジャンプ L / Space</span>
         <span>ステップ Shift</span><span>サブ U</span><span>特射 I</span><span>特格 O</span><span>覚醒 Q</span>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== 通信対戦パネル ===== -->
+  <div id="netPanel" class="hidden">
+    <div class="netInner">
+      <h2 id="netTitle">部屋を作る</h2>
+
+      <div id="netHostBox" class="hidden">
+        <p class="netLabel">この4文字を相手に伝えてください</p>
+        <div id="roomCode">----</div>
+        <p id="netStatus" class="netStatus">部屋を準備中…</p>
+      </div>
+
+      <div id="netJoinBox" class="hidden">
+        <p class="netLabel">相手の部屋コード</p>
+        <input id="codeInput" type="text" inputmode="latin" autocomplete="off"
+               autocapitalize="characters" maxlength="4" placeholder="ABCD" />
+        <button id="connectBtn">接続</button>
+        <p id="netJoinStatus" class="netStatus"></p>
+      </div>
+
+      <button id="netCancelBtn" class="sub">やめる</button>
     </div>
   </div>
 

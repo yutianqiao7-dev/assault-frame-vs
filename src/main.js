@@ -8,6 +8,8 @@ import { Input } from './input.js';
 import { AI } from './ai.js';
 import { HUD } from './hud.js';
 import { Collision } from './collision.js';
+import { Net, normalizeCode } from './net.js';
+import { packSnapshot, applyMech } from './netsync.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -97,6 +99,7 @@ const game = {
   running: false,
   paused: false,
   over: false,
+  mode: 'cpu',          // 'cpu' | 'host' | 'guest'
 
   init(selfId = 'brave', foeId = 'garm', level = 'normal') {
     for (const m of world.mechs) { scene.remove(m.root); if (m.trail) scene.remove(m.trail.mesh); }
@@ -114,7 +117,8 @@ const game = {
     world.mechs.push(self, foe);
 
     this.self = self; this.foe = foe;
-    this.ai = new AI(foe, world, level);
+    // 通信対戦では相手は人間なので CPU を作らない
+    this.ai = this.mode === 'cpu' ? new AI(foe, world, level) : null;
     this.cost.ally = C.TEAM_COST;
     this.cost.foe = C.TEAM_COST;
     this.time = C.BATTLE_TIME;
@@ -137,6 +141,10 @@ const game = {
     title.textContent = result === 'win' ? 'MISSION COMPLETE' : result === 'lose' ? 'MISSION FAILED' : 'DRAW';
     title.className = result === 'win' ? 'win' : 'lose';
     el.classList.remove('hidden');
+    // 通信対戦ではホストだけが決着を判定し、結果を相手に伝える
+    if (this.mode === 'host' && net.connected) net.send({ t: 'end', r: result });
+    // 通信対戦では「もう一度」は片方だけでは成立しないので隠す
+    $('againBtn').classList.toggle('hidden', this.mode !== 'cpu');
   },
 };
 
@@ -168,6 +176,12 @@ function tick(dt) {
 
   const inp = game.running ? input.read() : EMPTY_INPUT;
 
+  if (game.mode === 'guest') {
+    netGuestTick(dt, inp);
+    input.endFrame();
+    return;
+  }
+
   if (game.running && !game.over) {
     game.time -= dt;
     if (game.time <= 0) {
@@ -177,15 +191,27 @@ function tick(dt) {
     }
   }
 
-  const aiInp = game.ai ? game.ai.update(dt) : EMPTY_INPUT;
+  // 相手の入力: CPU か、通信相手から届いたもの
+  const foeInp = game.mode === 'host' ? netRemoteInput() : (game.ai ? game.ai.update(dt) : EMPTY_INPUT);
   if (game.self) game.self.update(dt, game.running ? inp : EMPTY_INPUT);
-  if (game.foe) game.foe.update(dt, game.running ? aiInp : EMPTY_INPUT);
+  if (game.foe) game.foe.update(dt, game.running ? foeInp : EMPTY_INPUT);
 
   world.projectiles.update(dt, world.mechs);
   fx.update(dt);
   chase.update(dt, game.self, game.foe);
   if (game.self) hud.update(dt, game);
+
+  if (game.mode === 'host') netHostSend(dt);
+  updatePing();
   input.endFrame();
+}
+
+let pingAcc = 0;
+function updatePing() {
+  const el = $('netPing');
+  if (game.mode === 'cpu' || !net.connected) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  if (++pingAcc % 30 === 0) el.textContent = `PING ${net.pingMs}ms`;
 }
 
 let last = performance.now();
@@ -277,14 +303,188 @@ requestAnimationFrame(frame);
 
 const $ = (id) => document.getElementById(id);
 
+// ==================== 通信対戦 ====================
+// ホストが両機をシミュレーションし、ゲストは自分の入力を送って結果を描画する。
+const net = new Net();
+const SNAPSHOT_HZ = 30;
+
+// エッジ入力（格闘・ステップ等）は「押した回数」を送る。
+// 毎フレームの真偽値だと、送信とホストのフレームがズレたときに
+// 取りこぼしたり二重に出たりする。差分なら順序が入れ替わっても拾える。
+const EDGE_KEYS = ['stepPressed', 'melee', 'sub', 'sp_shot', 'sp_melee', 'awake'];
+const localCounts = {};
+const remoteCounts = {};
+const remoteSeen = {};
+for (const k of EDGE_KEYS) { localCounts[k] = 0; remoteCounts[k] = 0; remoteSeen[k] = 0; }
+
+const remoteInput = { ...EMPTY_INPUT };
+let netSendAcc = 0;
+let snapSeq = 0;
+let lastSnapshot = null;
+let guestReady = false;
+
+function netSendInput(inp) {
+  for (const k of EDGE_KEYS) if (inp[k]) localCounts[k]++;
+  net.send({
+    t: 'in',
+    x: Math.round(inp.mx * 100) / 100,
+    y: Math.round(inp.my * 100) / 100,
+    j: inp.jump ? 1 : 0,
+    s: inp.shot ? 1 : 0,
+    e: EDGE_KEYS.map((k) => localCounts[k]),
+  });
+}
+
+// ホスト側: 届いた入力を 1 フレームぶんの入力に変換する
+function netRemoteInput() {
+  const o = remoteInput;
+  for (const k of EDGE_KEYS) {
+    o[k] = remoteCounts[k] > remoteSeen[k];
+    if (o[k]) remoteSeen[k]++;      // 溜まっていたら 1 フレームに 1 回ずつ消化する
+  }
+  return o;
+}
+
+function netOnMessage(m) {
+  if (!m) return;
+  if (m.t === 'in') {
+    remoteInput.mx = m.x; remoteInput.my = m.y;
+    remoteInput.jump = !!m.j; remoteInput.shot = !!m.s;
+    for (let i = 0; i < EDGE_KEYS.length; i++) remoteCounts[EDGE_KEYS[i]] = m.e[i];
+    return;
+  }
+  if (m.t === 'hello') {           // ゲストが機体を伝えてきた
+    guestFoeId = C.MECHS[m.mech] ? m.mech : 'garm';
+    net.send({ t: 'start', h: selfId, g: guestFoeId });
+    startNetBattle('host');
+    return;
+  }
+  if (m.t === 'start') {           // ホストが開始を宣言
+    hostMechId = C.MECHS[m.h] ? m.h : 'brave';
+    startNetBattle('guest');
+    return;
+  }
+  if (m.t === 's') { lastSnapshot = m; guestReady = true; return; }
+  if (m.t === 'end') {
+    game.finish(m.r === 'win' ? 'lose' : m.r === 'lose' ? 'win' : 'draw');
+    return;
+  }
+  if (m.t === 'menu') { opponentLeft(); return; }
+}
+
+let guestFoeId = 'garm';   // ホストから見た相手の機体
+let hostMechId = 'brave';  // ゲストから見た相手の機体
+
+function netHostSend(dt) {
+  netSendAcc += dt;
+  if (netSendAcc < 1 / SNAPSHOT_HZ) return;
+  netSendAcc = 0;
+  if (!net.connected) return;
+  net.send(packSnapshot(game, world, ++snapSeq));
+}
+
+// ゲスト側: シミュレーションはせず、受け取った状態を反映して描く
+function netGuestTick(dt, inp) {
+  if (net.connected) netSendInput(inp);
+
+  const snap = lastSnapshot;
+  if (snap) {
+    lastSnapshot = null;
+    // world.mechs[0] がホスト機、[1] がゲスト機。ゲストから見た自機は [1]
+    applyMech(world.mechs[0], snap.m[0], 0.4);
+    applyMech(world.mechs[1], snap.m[1], 0.4);
+    world.projectiles.syncShots(snap.p, world.mechs, C.WEAPON_ORDER);
+    world.projectiles.syncBits(snap.b, world.mechs);
+    world.projectiles.syncBeams(snap.l, world.mechs);
+    game.time = snap.tm;
+    game.cost.ally = snap.c[1];    // 表示は自分＝ゲスト側が ALLY
+    game.cost.foe = snap.c[0];
+    for (const m of world.mechs) {
+      if (m.hp < m.netPrevHp) fxHitAt(m);
+      if (m.st === 'dead' && m.netPrevSt !== 'dead') fx.explode(m.pos);
+      m.netPrevHp = m.hp; m.netPrevSt = m.st;
+    }
+  }
+
+  // スナップショットの間は速度で外挿して滑らかに見せる
+  for (const m of world.mechs) {
+    if (m.st === 'dead') { m.root.visible = false; continue; }
+    m.root.visible = true;
+    m.pos.addScaledVector(m.vel, dt);
+    m.root.position.copy(m.pos);
+    m.root.rotation.y = m.yaw;
+    const shFloor = collision.floorAt(m.pos.x, m.pos.z);
+    const sh = m.root.userData.shadow;
+    sh.position.y = shFloor - m.pos.y + 0.03;
+    m.animT += dt; m.stT += dt;
+    m.pose(dt);
+    m.updateTrail();
+  }
+  world.projectiles.extrapolate(dt);
+  fx.update(dt);
+  chase.update(dt, game.self, game.foe);
+  if (game.self) hud.update(dt, game);
+  updatePing();
+}
+
+function fxHitAt(m) {
+  const p = m.pos.clone(); p.y += 1.6;
+  fx.hit(p, m.d.palette.beam);
+}
+
+// 通信対戦の開始。ホストとゲストで自機/相手機の割り当てが逆になる
+function startNetBattle(role) {
+  game.mode = role;
+  const hostId = role === 'host' ? selfId : hostMechId;
+  const guestId = role === 'host' ? guestFoeId : selfId;
+  game.init(hostId, guestId, level);
+  // world.mechs は [ホスト機, ゲスト機] の順。自分の機体を self にする
+  const mine = role === 'host' ? world.mechs[0] : world.mechs[1];
+  const theirs = role === 'host' ? world.mechs[1] : world.mechs[0];
+  game.self = mine; game.foe = theirs;
+  mine.isPlayer = true; theirs.isPlayer = false;
+  for (const m of world.mechs) { m.netPrevHp = m.hp; m.netPrevSt = m.st; }
+  for (const k of EDGE_KEYS) { localCounts[k] = 0; remoteCounts[k] = 0; remoteSeen[k] = 0; }
+  lastSnapshot = null; guestReady = false; snapSeq = 0;
+
+  hud.setup(mine, theirs);
+  chase.snap(mine, theirs);
+  closeNetPanel();
+  $('gate').classList.add('hidden');
+  hud.show();
+  game.running = true;
+  game.paused = false;
+  game.over = false;
+  $('pauseMenu').classList.add('hidden');
+  $('pauseBtn').classList.remove('hidden');
+  $('result').classList.add('hidden');
+  $('touch').classList.remove('hidden');
+  last = performance.now();
+  hud.message('BATTLE START', '#8fd6ff');
+}
+
+function opponentLeft() {
+  if (game.mode === 'cpu') return;
+  hud.message('相手が退出しました', '#ff6b74');
+  net.close();
+  setTimeout(toMainMenu, 1200);
+}
+
+
 function setPaused(on) {
-  game.paused = on;
+  // 通信対戦では相手の時間を止められないので、こちらも止めない。
+  // 「PAUSE」と名乗らず、メニューだけ開く
+  const canFreeze = game.mode === 'cpu';
+  game.paused = on && canFreeze;
+  $('pauseMenu').querySelector('h2').textContent = canFreeze ? 'PAUSE' : 'MENU';
+  $('resumeBtn').textContent = canFreeze ? '続ける' : '戻る';
   $('pauseMenu').classList.toggle('hidden', !on);
   $('touch').classList.toggle('hidden', on);   // 誤爆防止で操作系を隠す
   last = performance.now();                    // 再開時に dt が飛ばないように
 }
 
 function startBattle() {
+  game.mode = 'cpu';
   game.init(selfId, foeId, level);
   game.running = true;
   game.paused = false;
@@ -298,6 +498,11 @@ function startBattle() {
 
 // 対戦をやめてタイトルへ戻る
 function toMainMenu() {
+  if (net.connected) net.send({ t: 'menu' });
+  net.close();
+  closeNetPanel();
+  game.mode = 'cpu';
+  $('netPing').classList.add('hidden');
   game.running = false;
   game.paused = false;
   game.over = false;
@@ -310,6 +515,84 @@ function toMainMenu() {
   game.init(selfId, foeId, level);   // 背景を選択中の組み合わせに戻す
   last = performance.now();
 }
+
+// ---------- 通信対戦の画面まわり ----------
+let uiMode = 'cpu';    // タイトルで選んでいるモード
+
+function setUiMode(m) {
+  uiMode = m;
+  for (const b of document.querySelectorAll('#modePick .md')) b.classList.toggle('on', b.dataset.mode === m);
+  $('lvPick').classList.toggle('hidden', m !== 'cpu');
+  $('startBtn').classList.toggle('hidden', m !== 'cpu');
+  $('netPick').classList.toggle('hidden', m !== 'net');
+  $('foePick').parentElement.classList.toggle('hidden', m !== 'cpu');  // 相手機はホストが決めない
+}
+
+function openNetPanel(kind) {
+  $('netPanel').classList.remove('hidden');
+  $('netTitle').textContent = kind === 'host' ? '部屋を作る' : '部屋に入る';
+  $('netHostBox').classList.toggle('hidden', kind !== 'host');
+  $('netJoinBox').classList.toggle('hidden', kind !== 'join');
+  $('netStatus').className = 'netStatus';
+  $('netJoinStatus').className = 'netStatus';
+  $('netJoinStatus').textContent = '';
+}
+function closeNetPanel() { $('netPanel').classList.add('hidden'); }
+
+function netStatusText(el, msg, isErr) {
+  const e = $(el);
+  e.textContent = msg;
+  e.className = 'netStatus' + (isErr ? ' err' : '');
+}
+
+net.onMessage = netOnMessage;
+net.onState = (st, err) => {
+  if (st === 'waiting') netStatusText('netStatus', '相手の接続を待っています…');
+  if (st === 'connected' && net.role === 'host') netStatusText('netStatus', '接続しました。開始します…');
+  if (st === 'connected' && net.role === 'guest') netStatusText('netJoinStatus', '接続しました。開始を待っています…');
+  if (st === 'error') {
+    netStatusText(net.role === 'guest' ? 'netJoinStatus' : 'netStatus', err || '接続エラー', true);
+  }
+  if (st === 'closed' && game.running) opponentLeft();
+};
+
+$('hostBtn').addEventListener('click', async () => {
+  openNetPanel('host');
+  $('roomCode').textContent = '----';
+  netStatusText('netStatus', '部屋を準備中…');
+  try {
+    const code = await net.host();
+    $('roomCode').textContent = code;
+  } catch (e) { /* onState がエラーを出す */ }
+});
+
+$('joinBtn').addEventListener('click', () => {
+  openNetPanel('join');
+  $('codeInput').value = '';
+  setTimeout(() => $('codeInput').focus(), 50);
+});
+
+$('codeInput').addEventListener('input', (e) => {
+  e.target.value = normalizeCode(e.target.value);
+});
+$('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('connectBtn').click(); });
+
+$('connectBtn').addEventListener('click', async () => {
+  const code = normalizeCode($('codeInput').value);
+  if (code.length < 4) { netStatusText('netJoinStatus', '4文字のコードを入れてください', true); return; }
+  netStatusText('netJoinStatus', '接続中…');
+  try {
+    await net.join(code);
+    net.send({ t: 'hello', mech: selfId });   // 自分の機体を伝える。開始はホストが宣言する
+  } catch (e) { /* onState がエラーを出す */ }
+});
+
+$('netCancelBtn').addEventListener('click', () => { net.close(); closeNetPanel(); });
+
+for (const b of document.querySelectorAll('#modePick .md')) {
+  b.addEventListener('click', () => setUiMode(b.dataset.mode));
+}
+setUiMode('cpu');
 
 $('pauseBtn').addEventListener('click', () => { if (game.running && !game.over) setPaused(true); });
 $('resumeBtn').addEventListener('click', () => setPaused(false));
@@ -331,7 +614,7 @@ $('againBtn').addEventListener('click', startBattle);
 // ---------- デバッグ (開発時のみ。本番ビルドでは丸ごと消える) ----------
 if (import.meta.env.DEV) {
   window.__dbg = {
-    THREE, scene, camera, renderer, composer, bloom, game, world, hud, input, chase,
+    THREE, scene, camera, renderer, composer, bloom, game, world, hud, input, chase, net,
     step(dt = 1 / 60, n = 1) { for (let i = 0; i < n; i++) tick(dt); renderFrame(); },
     sim(n, dt = 1 / 60, onFrame) { for (let i = 0; i < n; i++) { if (onFrame) onFrame(i); tick(dt); } },
     render() { renderFrame(); },

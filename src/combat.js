@@ -41,6 +41,9 @@ export class Projectiles {
     this.laserGeo.translate(0, 0, 0.5);   // 原点から +Z 方向に伸びる
     this.matCache = new Map();
     this.shotProto = new Map();
+    this.nextNetId = 1;   // 通信対戦で弾を同定するための通し番号
+    this.netShots = new Map();   // ゲスト側が描くだけの弾
+    this.netBits = new Map();
   }
 
   mat(color) {
@@ -150,6 +153,7 @@ export class Projectiles {
       aimOff,
       color,
     };
+    p.netId = this.nextNetId++;
     this.world.scene.add(mesh);
     this.list.push(p);
     this.world.fx.muzzle(from, color);
@@ -242,6 +246,7 @@ export class Projectiles {
       this.world.scene.add(mesh);
       this.bits.push({
         mesh, owner, w, key,
+        netId: this.nextNetId++,
         pos: from.clone(),
         life: w.bitTime,
         phase: (i / n) * Math.PI * 2,
@@ -419,7 +424,102 @@ export class Projectiles {
     }
   }
 
+  // ===== 通信対戦: ゲスト側でホストの弾を再現する =====
+  // ホストが送ってくるのは [id, ownerIdx, weaponIdx, x,y,z, vx,vy,vz] の並び。
+  // 見た目と外挿のためだけに持ち、当たり判定はホストしか行わない。
+  syncShots(arr, mechs, WEAPON_ORDER) {
+    const seen = new Set();
+    for (let i = 0; i < arr.length; i += 9) {
+      const id = arr[i], owner = mechs[arr[i + 1]], key = WEAPON_ORDER[arr[i + 2]];
+      if (!owner || !key) continue;
+      seen.add(id);
+      let p = this.netShots.get(id);
+      if (!p) {
+        const w = owner.d.weapons[key];
+        if (!w) continue;
+        const color = (w.kind === 'beam' || w.kind === 'spread') ? owner.d.palette.beam
+          : w.kind === 'bullet' ? '#ffd98a' : '#ffb45c';
+        const mesh = this.makeShotMesh(w, color);
+        this.world.scene.add(mesh);
+        p = { mesh, w, pos: new THREE.Vector3(), vel: new THREE.Vector3() };
+        this.netShots.set(id, p);
+        this.world.fx.muzzle(new THREE.Vector3(arr[i + 3], arr[i + 4], arr[i + 5]), color);
+      }
+      p.pos.set(arr[i + 3], arr[i + 4], arr[i + 5]);
+      p.vel.set(arr[i + 6], arr[i + 7], arr[i + 8]);
+      p.mesh.position.copy(p.pos);
+      if (p.w.kind !== 'bullet') p.mesh.lookAt(p.pos.x + p.vel.x, p.pos.y + p.vel.y, p.pos.z + p.vel.z);
+    }
+    for (const [id, p] of this.netShots) {
+      if (seen.has(id)) continue;
+      this.world.scene.remove(p.mesh);
+      this.netShots.delete(id);
+    }
+  }
+
+  syncBits(arr, mechs) {
+    const seen = new Set();
+    for (let i = 0; i < arr.length; i += 5) {
+      const id = arr[i], owner = mechs[arr[i + 1]];
+      if (!owner) continue;
+      seen.add(id);
+      let b = this.netBits.get(id);
+      if (!b) {
+        const mesh = new THREE.Mesh(this.bitGeo, this.mat(owner.d.palette.trim));
+        this.world.scene.add(mesh);
+        b = { mesh, owner };
+        this.netBits.set(id, b);
+      }
+      b.mesh.position.set(arr[i + 2], arr[i + 3], arr[i + 4]);
+      const t = owner.target;
+      if (t) b.mesh.lookAt(t.pos.x, t.pos.y + 1.5, t.pos.z);
+    }
+    for (const [id, b] of this.netBits) {
+      if (seen.has(id)) continue;
+      this.world.scene.remove(b.mesh);
+      this.netBits.delete(id);
+    }
+  }
+
+  syncBeams(arr, mechs) {
+    // 本数が変わったら作り直す（同時に何本も出る武装ではない）
+    while (this.beams.length > arr.length / 5) {
+      const b = this.beams.pop();
+      this.world.scene.remove(b.grp);
+      b.core.material.dispose(); b.glow.material.dispose();
+    }
+    for (let i = 0; i < arr.length; i += 5) {
+      const owner = mechs[arr[i]];
+      if (!owner) continue;
+      const idx = i / 5;
+      if (!this.beams[idx]) {
+        const b = this.spawnLaser(owner, 'sp_shot');
+        this.beams.pop();          // spawnLaser が push したものを所定の位置へ
+        this.beams[idx] = b;
+      }
+      const b = this.beams[idx];
+      b.dir.set(arr[i + 1], arr[i + 2], arr[i + 3]);
+      b.life = arr[i + 4];
+    }
+  }
+
+  // ゲスト側: スナップショットの間を速度で埋める
+  extrapolate(dt) {
+    for (const p of this.netShots.values()) {
+      p.pos.addScaledVector(p.vel, dt);
+      p.mesh.position.copy(p.pos);
+    }
+  }
+
+  clearNet() {
+    for (const p of this.netShots.values()) this.world.scene.remove(p.mesh);
+    for (const b of this.netBits.values()) this.world.scene.remove(b.mesh);
+    this.netShots.clear();
+    this.netBits.clear();
+  }
+
   clear() {
+    this.clearNet();
     for (const p of this.list) this.world.scene.remove(p.mesh);
     for (const b of this.beams) {
       this.world.scene.remove(b.grp);
