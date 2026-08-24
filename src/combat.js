@@ -137,7 +137,8 @@ export class Projectiles {
       _d.normalize();
     }
 
-    const color = (w.kind === 'beam' || w.kind === 'spread') ? owner.d.palette.beam
+    const color = (w.kind === 'beam' || w.kind === 'spread' || w.kind === 'boomerang')
+      ? owner.d.palette.beam
       : w.kind === 'bullet' ? '#ffd98a' : '#ffb45c';
     const mesh = this.makeShotMesh(w, color);
     mesh.position.copy(from);
@@ -152,6 +153,9 @@ export class Projectiles {
       gravity,
       aimOff,
       color,
+      hitSet: (w.pierce || w.kind === 'boomerang') ? new Set() : null,   // 消えずに通過する弾。同じ相手を連続で刺さない
+      boomT: 0,                              // ブーメラン: 折り返しまでの経過
+      returning: false,
     };
     p.netId = this.nextNetId++;
     this.world.scene.add(mesh);
@@ -168,6 +172,16 @@ export class Projectiles {
       if (w.kind === 'beam' || w.kind === 'spread') {
         const len = w.kind === 'beam' ? 5.2 : 3.0;
         proto = makeBeamBody(len, Math.max(w.radius, 0.34), color, { coreRatio: 0.4, glowOpacity: 0.4 });
+      } else if (w.kind === 'boomerang') {
+        proto = new THREE.Group();
+        const blade = new THREE.Mesh(
+          new THREE.BoxGeometry(2.0, 0.16, 0.42),
+          new THREE.MeshStandardMaterial({ color: 0xc8ccd4, metalness: 0.9, roughness: 0.22 })
+        );
+        // 回転させる刃は children[0] に置く。
+        // userData に参照を入れても clone() で JSON 化されて壊れる
+        proto.add(blade);
+        proto.add(makeGlowBall(0.55, color, 0.3));
       } else if (w.kind === 'bullet') {
         proto = new THREE.Group();
         proto.add(makeGlowBall(Math.max(w.radius, 0.22), '#ffffff', 0.95));
@@ -277,6 +291,25 @@ export class Projectiles {
       }
       if (p.gravity) p.vel.y -= p.gravity * dt;
 
+      // ブーメラン: 一定時間で折り返し、投げ主のところへ戻る
+      if (p.w.kind === 'boomerang') {
+        p.boomT += dt;
+        if (!p.returning && p.boomT >= (p.w.turnAt || 0.55)) {
+          p.returning = true;
+          if (p.hitSet) p.hitSet.clear();   // 復路でもう一度当たる
+        }
+        if (p.returning) {
+          _v.copy(p.owner.pos); _v.y += 1.4;
+          _d.copy(_v).sub(p.pos);
+          const dist = _d.length();
+          _d.normalize();
+          const sp = p.vel.length() || p.w.speed;
+          p.vel.lerp(_d.multiplyScalar(sp), 1 - Math.pow(0.004, dt));
+          if (dist < 3) p.life = 0;         // 手元に戻ったら消える
+        }
+        if (p.mesh.children[0]) p.mesh.children[0].rotation.y += dt * 26;
+      }
+
       _prev.copy(p.pos);
       p.pos.addScaledVector(p.vel, dt);
       p.mesh.position.copy(p.pos);
@@ -288,12 +321,14 @@ export class Projectiles {
       for (const m of mechs) {
         if (m === p.owner || !m.alive || m.team === p.owner.team) continue;
         if (m.invuln > 0) continue;
+        if (p.hitSet && p.hitSet.has(m)) continue;      // 貫通弾は同じ相手を刺し直さない
         _v.copy(m.pos); _v.y += 1.6;
         const r = p.radius + 2.0;
         if (distSqPointSegment(_v, _prev, p.pos) < r * r) {
           _d.copy(p.vel).normalize();
           this.world.hit(p.owner, m, p.w.dmg, p.w.down, _d, p.w.kind === 'shell' ? 8 : 3, p.w.kind);
-          hitSomething = true;
+          if (p.hitSet) { p.hitSet.add(m); this.world.fx.hit(p.pos, p.color); }
+          else hitSomething = true;                     // 貫通しない弾はここで消える
           break;
         }
       }
@@ -305,8 +340,20 @@ export class Projectiles {
         const t = col.segmentHit(_prev.x, _prev.y, _prev.z, p.pos.x, p.pos.y, p.pos.z);
         if (t >= 0) {
           p.pos.lerpVectors(_prev, p.pos, Math.max(t - 0.01, 0));
-          blocked = true;
+          // ブーメランは壁に当たったら折り返して戻る
+          if (p.w.kind === 'boomerang' && !p.returning) {
+            p.returning = true; p.vel.negate();
+            if (p.hitSet) p.hitSet.clear();
+          }
+          else blocked = true;
         }
+      }
+
+      // ブーメランは地面すれすれを滑って戻る。誘導で下を向いたときに
+      // 地面に潜って消えてしまうと、往復する武装にならない
+      if (p.w.kind === 'boomerang' && p.pos.y < 1.0) {
+        p.pos.y = 1.0;
+        if (p.vel.y < 0) p.vel.y = 0;
       }
 
       const outside = p.pos.y < 0 || Math.hypot(p.pos.x, p.pos.z) > ARENA_R + 20;

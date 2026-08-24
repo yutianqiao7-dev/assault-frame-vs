@@ -4,10 +4,10 @@ import { makeBeamBody, glowMaterial } from './glow.js';
 
 // プリミティブから機体を組む。全高は約 3.0 ユニット。
 // 見た目は config の shape スペックで決まる:
-//   head:     visor / mono / crest / horn / dome
-//   shoulder: pad / spike / shield / cannon / binder
-//   back:     pack / wings / cannon / funnels / booster
-//   gun:      rifle / machinegun / cannon / twin / none
+//   head:     visor / mono / crest / horn / dome / twin / mask
+//   shoulder: pad / spike / shield / cannon / binder / drum / wing / blade
+//   back:     pack / wings / cannon / funnels / booster / tank / blades
+//   gun:      rifle / machinegun / cannon / twin / bow / gatling / none
 // 返す root の userData に可動パーツを入れる。
 // mech.js が pelvis/torso/armL/armR/legL/legR/thrusters/saber/shadow を、
 // combat.js が muzzle を参照するので、このキーは変えないこと。
@@ -143,6 +143,28 @@ function addShoulder(pivot, P, kind, s) {
       pivot.add(cyl(0.3, 0.34, 0.3, main, 0.13 * s, 0.02, 0));
       break;
     }
+    case 'drum': {
+      const dm = cyl(0.28, 0.28, 0.42, acc, 0.22 * s, 0.02, 0);
+      dm.rotation.z = Math.PI / 2; pivot.add(dm);
+      pivot.add(cyl(0.3, 0.3, 0.06, trim, 0.44 * s, 0.02, 0)).rotation.z = Math.PI / 2;
+      break;
+    }
+    case 'wing': {
+      const w = box(0.09, 0.34, 0.78, acc, 0.3 * s, 0.14, -0.12);
+      w.rotation.z = -0.5 * s; w.rotation.x = 0.16;
+      pivot.add(w);
+      pivot.add(box(0.34, 0.34, 0.44, main, 0.17 * s, 0.02, 0));
+      break;
+    }
+    case 'blade': {
+      pivot.add(box(0.38, 0.4, 0.48, main, 0.19 * s, 0.02, 0));
+      // 肩から後ろへ伸びる大型ブレード
+      const b = box(0.07, 0.22, 1.0, trim, 0.34 * s, 0.14, -0.3);
+      b.rotation.z = -0.3 * s; b.rotation.x = -0.22;
+      pivot.add(b);
+      pivot.add(box(0.05, 0.16, 0.4, acc, 0.4 * s, 0.05, 0.1));
+      break;
+    }
     default: { // pad
       pivot.add(box(0.42, 0.42, 0.52, main, 0.2 * s, 0.02, 0));
       pivot.add(box(0.06, 0.3, 0.44, trim, 0.42 * s, 0.02, 0));
@@ -215,6 +237,28 @@ function addHead(head, P, kind) {
     pipe.rotation.x = 0.7; head.add(pipe);
     return;
   }
+  if (kind === 'twin') {
+    // 横長のバイザーに双眼
+    head.add(box(0.36, 0.26, 0.3, main, 0, 0.1, 0));
+    head.add(box(0.34, 0.09, 0.06, mat('#12161f', { kind: 'flat', noPanel: true }), 0, 0.12, 0.16));
+    head.add(box(0.07, 0.05, 0.04, eye, -0.09, 0.12, 0.19));
+    head.add(box(0.07, 0.05, 0.04, eye, 0.09, 0.12, 0.19));
+    head.add(box(0.44, 0.06, 0.14, acc, 0, 0.25, -0.02));
+    for (const s of [-1, 1]) head.add(box(0.05, 0.2, 0.12, trim, s * 0.21, 0.06, 0.0));
+    return;
+  }
+  if (kind === 'mask') {
+    // 口元まで覆うマスク型。目は細い一本線
+    head.add(box(0.32, 0.32, 0.34, main, 0, 0.1, 0));
+    head.add(box(0.28, 0.2, 0.1, acc, 0, 0.02, 0.16));      // マスク
+    head.add(box(0.26, 0.035, 0.05, eye, 0, 0.17, 0.19));
+    head.add(box(0.1, 0.24, 0.1, trim, 0, 0.3, 0.02));
+    for (const s of [-1, 1]) {
+      const f = box(0.06, 0.3, 0.06, trim, s * 0.14, 0.3, -0.04);
+      f.rotation.z = -s * 0.2; head.add(f);
+    }
+    return;
+  }
   if (kind === 'dome') {
     head.add(sph(0.27, main, 0, 0.09, 0));
     head.add(box(0.36, 0.1, 0.1, mat('#1b2230'), 0, 0.1, 0.19));
@@ -274,6 +318,22 @@ function addGun(gun, P, kind) {
       for (const dx of [-0.09, 0.09]) gun.add(box(0.1, 0.1, 0.8, g, dx, 0.02, 0.3));
       gun.add(box(0.12, 0.24, 0.14, g, 0, -0.14, 0.02));
       reach = 0.74; break;
+    case 'bow':
+      // 長銃身のライフル
+      gun.add(box(0.1, 0.1, 1.5, g, 0, 0, 0.55));
+      gun.add(box(0.11, 0.26, 0.14, g, 0, -0.14, 0.02));
+      gun.add(box(0.16, 0.3, 0.14, g, 0, 0.1, 0.2));
+      { const e = cyl(0.05, 0.05, 0.24, glow, 0, 0, 1.28, 8); e.rotation.x = Math.PI / 2; gun.add(e); }
+      reach = 1.34; break;
+    case 'gatling':
+      { const barrel = cyl(0.19, 0.19, 1.0, g, 0, 0, 0.38); barrel.rotation.x = Math.PI / 2; gun.add(barrel); }
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const bl = cyl(0.045, 0.045, 1.05, g, Math.cos(a) * 0.11, Math.sin(a) * 0.11, 0.4);
+        bl.rotation.x = Math.PI / 2; gun.add(bl);
+      }
+      gun.add(box(0.14, 0.28, 0.16, g, 0, -0.18, 0.0));
+      reach = 0.94; break;
     case 'none':
       reach = 0.35; break;
     default: // rifle
@@ -314,6 +374,22 @@ function addBack(torso, P, kind, flameMat, thrusters) {
       const f = box(0.14, 0.34, 0.14, trim, s * (0.24 + (i % 2) * 0.17), 0.3 + (i % 2) * 0.28, -0.46);
       f.rotation.x = 0.2; torso.add(f);
     }
+  } else if (kind === 'tank') {
+    // 大型の増設タンク
+    for (const s of [-1, 1]) {
+      const t = cyl(0.24, 0.24, 0.9, acc, s * 0.34, 0.4, -0.44);
+      t.rotation.x = Math.PI / 2; torso.add(t);
+      torso.add(cyl(0.26, 0.26, 0.06, trim, s * 0.34, 0.4, -0.9)).rotation.x = Math.PI / 2;
+    }
+    torso.add(box(0.8, 0.2, 0.22, trim, 0, 0.66, -0.42));
+  } else if (kind === 'blades') {
+    // 背中に畳んだブレード
+    for (const s of [-1, 1]) {
+      const b = box(0.08, 1.25, 0.3, trim, s * 0.2, 0.55, -0.44);
+      b.rotation.z = -s * 0.3; b.rotation.x = 0.1;
+      torso.add(b);
+    }
+    torso.add(box(0.5, 0.24, 0.16, acc, 0, 0.2, -0.44));
   } else if (kind === 'booster') {
     for (const s of [-1, 1]) {
       const b = cyl(0.15, 0.19, 0.8, acc, s * 0.3, 0.42, -0.46);
