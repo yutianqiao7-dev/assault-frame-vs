@@ -149,6 +149,41 @@ body{
   width:54px;height:54px;font-size:11px;
 }
 
+/* ---------- 撃墜演出 ---------- */
+#flash{
+  position:fixed;inset:0;z-index:35;pointer-events:none;
+  background:#fff;opacity:0;
+}
+#finishBanner{
+  position:fixed;inset:0;z-index:36;pointer-events:none;
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;
+}
+#finishText{
+  font-size:clamp(38px,11vw,96px);font-weight:800;letter-spacing:.16em;
+  color:#fff;text-shadow:0 0 40px rgba(255,140,60,.9),0 0 14px rgba(255,220,150,.9),0 4px 12px #000;
+  transform:scale(1.4);
+  white-space:nowrap;
+}
+#finishBanner.on{
+  animation:finishIn 1.5s cubic-bezier(.12,.8,.2,1) forwards;
+}
+#finishBanner.on #finishText{
+  animation:finishTxt 1.5s cubic-bezier(.12,.8,.2,1) forwards;
+}
+@keyframes finishIn{
+  0%{opacity:0} 8%{opacity:1} 72%{opacity:1} 100%{opacity:0}
+}
+@keyframes finishTxt{
+  0%{transform:scale(1.9);letter-spacing:.5em}
+  18%{transform:scale(1);letter-spacing:.16em}
+  100%{transform:scale(1.04);letter-spacing:.2em}
+}
+
+/* リザルトはフェードで出す */
+#result{animation:resultIn .5s ease forwards;}
+@keyframes resultIn{ from{opacity:0} to{opacity:1} }
+
 /* ---------- モード / 通信対戦 ---------- */
 #modePick{display:flex;gap:8px;justify-content:center;margin:0 0 16px;}
 .md{

@@ -71,8 +71,14 @@ const world = {
     const side = victim.team === 'ally' ? 'ally' : 'foe';
     game.cost[side] = Math.max(0, game.cost[side] - victim.d.cost);
     chase.bump(1.2);
-    hud.message(victim === game.self ? 'DOWN...' : 'DESTROYED', victim === game.self ? '#ff6b74' : '#ffcf4d');
-    if (game.cost[side] <= 0) game.finish(side === 'ally' ? 'lose' : 'win');
+    const last = game.cost[side] <= 0;
+    if (last) {
+      // 最後の1機。すぐリザルトを出さず、撃墜演出に入る
+      startFinish(side === 'ally' ? 'lose' : 'win', victim);
+    } else {
+      hud.message(victim === game.self ? 'DOWN...' : 'DESTROYED', victim === game.self ? '#ff6b74' : '#ffcf4d');
+      hitStop(0.09, 0.12);      // 通常の撃墜にも軽い溜め
+    }
   },
   // ステップすると自分に向かってきている敵弾の誘導が切れる。
   // このジャンルで「ステップが防御の要」になる仕組みで、これが無いと
@@ -142,7 +148,7 @@ const game = {
     title.className = result === 'win' ? 'win' : 'lose';
     el.classList.remove('hidden');
     // 通信対戦ではホストだけが決着を判定し、結果を相手に伝える
-    if (this.mode === 'host' && net.connected) net.send({ t: 'end', r: result });
+    if (this.mode === 'host' && net.connected && !finishSeq.active) net.send({ t: 'end', r: result });
     // 通信対戦では「もう一度」は片方だけでは成立しないので隠す
     $('againBtn').classList.toggle('hidden', this.mode !== 'cpu');
   },
@@ -198,7 +204,7 @@ function tick(dt) {
 
   world.projectiles.update(dt, world.mechs);
   fx.update(dt);
-  chase.update(dt, game.self, game.foe);
+  if (!finishSeq.active) chase.update(dt, game.self, game.foe);
   if (game.self) hud.update(dt, game);
 
   if (game.mode === 'host') netHostSend(dt);
@@ -221,7 +227,9 @@ function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;      // タブ復帰時の巨大 dt をクランプ
-  tick(dt);
+  updateFinish(dt);            // 演出は実時間で進める
+  updateFlash(dt);
+  tick(dt * timeScale);
   renderFrame();
 }
 
@@ -303,6 +311,119 @@ requestAnimationFrame(frame);
 
 const $ = (id) => document.getElementById(id);
 
+// ==================== 撃墜演出 ====================
+// 最後の1機を落としたとき、すぐリザルトを出さずに
+// ヒットストップ → スローモーション → 寄りのカメラ → 爆発 → リザルト
+// の順で見せる。演出そのものは実時間で進み、シミュレーションだけが遅くなる。
+
+let timeScale = 1;
+let hitStopT = 0, hitStopScale = 1;
+
+// 一瞬だけ時間を潰す（当たった感を出す）
+function hitStop(dur, scale) {
+  hitStopT = Math.max(hitStopT, dur);
+  hitStopScale = scale;
+}
+
+const FIN = {
+  stop: 0.14,      // 完全に近い静止
+  slow: 1.45,      // スローモーション終わり
+  ramp: 2.35,      // 等速へ戻し終わり
+  result: 2.75,    // リザルト表示
+};
+
+const finishSeq = { active: false, t: 0, result: null, victim: null, nextBoom: 0, shown: false };
+
+function startFinish(result, victim) {
+  if (finishSeq.active || game.over) return;
+  finishSeq.active = true;
+  finishSeq.t = 0;
+  finishSeq.result = result;
+  finishSeq.victim = victim;
+  finishSeq.nextBoom = 0.35;
+  finishSeq.shown = false;
+
+  game.running = false;          // 入力も CPU も止める（機体は落下・爆散だけする）
+  chase.endFocus();
+  chase.bump(1.4);
+  fx.finishBlast(victim.pos);
+  flash(0.85, 0.5);
+  showFinishBanner(result === 'win' ? 'DESTROYED' : 'SHOT DOWN');
+
+  $('touch').classList.add('hidden');
+  $('pauseBtn').classList.add('hidden');
+
+  // 相手にも同じ演出を始めさせる（結果は相手視点で反転）
+  if (game.mode === 'host' && net.connected) {
+    net.send({ t: 'fin', r: result, v: world.mechs.indexOf(victim) });
+  }
+}
+
+function updateFinish(dt) {
+  // ヒットストップは演出中かどうかに関わらず効く
+  if (hitStopT > 0) {
+    hitStopT -= dt;
+    timeScale = hitStopScale;
+    if (hitStopT <= 0) timeScale = 1;
+  } else if (!finishSeq.active) {
+    timeScale = 1;
+  }
+
+  if (!finishSeq.active) return;
+  const f = finishSeq;
+  f.t += dt;
+
+  // 時間の伸縮
+  if (f.t < FIN.stop) timeScale = 0.06;
+  else if (f.t < FIN.slow) timeScale = 0.24;
+  else if (f.t < FIN.ramp) {
+    const q = (f.t - FIN.slow) / (FIN.ramp - FIN.slow);
+    timeScale = 0.24 + q * 0.76;
+  } else timeScale = 1;
+
+  // 追い討ちの小爆発
+  if (f.t < FIN.ramp && f.t >= f.nextBoom) {
+    f.nextBoom = f.t + 0.22 + Math.random() * 0.2;
+    fx.secondary(f.victim.pos, 4.5);
+    chase.bump(0.35);
+  }
+
+  // カメラは倒された機体に寄る
+  chase.focusOn(f.victim, f.t, dt);
+
+  if (!f.shown && f.t >= FIN.result) {
+    f.shown = true;
+    game.finish(f.result);
+  }
+}
+
+function endFinish() {
+  finishSeq.active = false;
+  finishSeq.victim = null;
+  timeScale = 1;
+  hitStopT = 0;
+  chase.endFocus();
+  $('finishBanner').classList.remove('on');
+  $('flash').style.opacity = '0';
+}
+
+// 白フラッシュ。CSS のトランジションではなく手で減衰させる
+let flashV = 0, flashDecay = 1;
+function flash(v, decay) { flashV = Math.max(flashV, v); flashDecay = decay; }
+function updateFlash(dt) {
+  if (flashV <= 0) return;
+  flashV = Math.max(0, flashV - dt / flashDecay);
+  $('flash').style.opacity = String(flashV);
+}
+
+function showFinishBanner(text) {
+  const b = $('finishBanner');
+  $('finishText').textContent = text;
+  b.classList.remove('on');
+  void b.offsetWidth;          // アニメーションを頭から再生させる
+  b.classList.add('on');
+}
+
 // ==================== 通信対戦 ====================
 // ホストが両機をシミュレーションし、ゲストは自分の入力を送って結果を描画する。
 const net = new Net();
@@ -365,7 +486,17 @@ function netOnMessage(m) {
     return;
   }
   if (m.t === 's') { lastSnapshot = m; guestReady = true; return; }
+  if (m.t === 'fin') {
+    // ホストが最後の1機を落とした。こちらでも同じ演出を回す
+    const victim = world.mechs[m.v];
+    const mine = m.r === 'win' ? 'lose' : m.r === 'lose' ? 'win' : 'draw';
+    if (victim) startFinish(mine, victim);
+    else game.finish(mine);
+    return;
+  }
   if (m.t === 'end') {
+    // 演出中なら、その終わりでリザルトが出るので何もしない
+    if (finishSeq.active) return;
     game.finish(m.r === 'win' ? 'lose' : m.r === 'lose' ? 'win' : 'draw');
     return;
   }
@@ -422,7 +553,7 @@ function netGuestTick(dt, inp) {
   }
   world.projectiles.extrapolate(dt);
   fx.update(dt);
-  chase.update(dt, game.self, game.foe);
+  if (!finishSeq.active) chase.update(dt, game.self, game.foe);
   if (game.self) hud.update(dt, game);
   updatePing();
 }
@@ -434,6 +565,7 @@ function fxHitAt(m) {
 
 // 通信対戦の開始。ホストとゲストで自機/相手機の割り当てが逆になる
 function startNetBattle(role) {
+  endFinish();
   game.mode = role;
   const hostId = role === 'host' ? selfId : hostMechId;
   const guestId = role === 'host' ? guestFoeId : selfId;
@@ -484,6 +616,7 @@ function setPaused(on) {
 }
 
 function startBattle() {
+  endFinish();
   game.mode = 'cpu';
   game.init(selfId, foeId, level);
   game.running = true;
@@ -498,6 +631,7 @@ function startBattle() {
 
 // 対戦をやめてタイトルへ戻る
 function toMainMenu() {
+  endFinish();
   if (net.connected) net.send({ t: 'menu' });
   net.close();
   closeNetPanel();
@@ -617,6 +751,12 @@ if (import.meta.env.DEV) {
     THREE, scene, camera, renderer, composer, bloom, game, world, hud, input, chase, net,
     step(dt = 1 / 60, n = 1) { for (let i = 0; i < n; i++) tick(dt); renderFrame(); },
     sim(n, dt = 1 / 60, onFrame) { for (let i = 0; i < n; i++) { if (onFrame) onFrame(i); tick(dt); } },
+    // 演出込みで 1 フレーム進める（rAF が止まる環境で撃墜演出を検証するため）
+    frames(n, dt = 1 / 60) {
+      for (let i = 0; i < n; i++) { updateFinish(dt); updateFlash(dt); tick(dt * timeScale); }
+    },
+    finish: { get seq() { return finishSeq; }, get scale() { return timeScale; } },
+    netMsg: (m) => netOnMessage(m),
     render() { renderFrame(); },
   };
 }

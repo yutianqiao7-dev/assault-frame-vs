@@ -19,6 +19,55 @@ export class ChaseCamera {
 
   bump(v = 1) { this.shake = Math.min(1.4, this.shake + v); }
 
+  // 撃墜演出用。倒された機体の周りを回り込みながら寄る。
+  // t は演出開始からの経過秒
+  focusOn(mech, t, dt) {
+    if (!mech) return;
+    const p = mech.pos;
+    // 最初は寄って、あとからゆっくり引く
+    const dist = 9 + Math.min(t, 2.4) * 5.5;
+    const height = 3.2 + Math.min(t, 2.4) * 1.6;
+    // 開始時のカメラ位置から回り込みを始める（急にワープしない）
+    if (this._focusAng === undefined) {
+      this._focusAng = Math.atan2(this.cam.position.x - p.x, this.cam.position.z - p.z);
+    }
+    this._focusAng += dt * 0.55;
+
+    _want.set(
+      p.x + Math.sin(this._focusAng) * dist,
+      p.y + height,
+      p.z + Math.cos(this._focusAng) * dist,
+    );
+    if (_want.y < 2.5) _want.y = 2.5;
+    if (this.colliders && this.colliders.length) {
+      _pivot.set(p.x, p.y + 1.8, p.z);
+      _ray.copy(_want).sub(_pivot);
+      const len = _ray.length();
+      if (len > 0.5) {
+        _caster.set(_pivot, _ray.divideScalar(len));
+        _caster.far = len;
+        const hit = _caster.intersectObjects(this.colliders, false)[0];
+        if (hit) _want.copy(_pivot).addScaledVector(_caster.ray.direction, Math.max(3, hit.distance - 1.4));
+      }
+    }
+    this.pos.lerp(_want, 1 - Math.pow(0.02, dt));
+
+    _look.set(p.x, p.y + 1.7, p.z);
+    this.look.lerp(_look, 1 - Math.pow(0.008, dt));
+
+    this.cam.position.copy(this.pos);
+    if (this.shake > 0) {
+      this.shake = Math.max(0, this.shake - dt * 2.0);
+      const sc = this.shake * this.shake * 1.1;
+      this.cam.position.x += (Math.random() - 0.5) * sc;
+      this.cam.position.y += (Math.random() - 0.5) * sc;
+      this.cam.position.z += (Math.random() - 0.5) * sc;
+    }
+    this.cam.lookAt(this.look);
+  }
+
+  endFocus() { this._focusAng = undefined; }
+
   update(dt, self, target) {
     if (!self) return;
     const sp = self.pos;

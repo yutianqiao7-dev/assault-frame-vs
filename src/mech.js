@@ -165,8 +165,20 @@ export class Mech {
     if (this.st === 'dead') {
       this.deadT -= dt;
       if (this.deadT <= 0) this.respawn();
-      this.root.visible = false;
       this.trail.reset();
+      // 撃墜直後のわずかな間だけ残骸を残す。
+      // 即座に消すと、寄りのカメラが何もない地面を映すことになる
+      const elapsed = DEAD_TIME - this.deadT;
+      if (elapsed < DEAD_SHOW) {
+        this.root.visible = true;
+        const p = elapsed / DEAD_SHOW;
+        this.root.rotation.x = -1.1 * p;          // 崩れ落ちる
+        this.root.rotation.z = 0.5 * p;
+        this.root.position.y = this.pos.y - p * 0.8;
+        this.root.scale.setScalar(1 - p * 0.12);
+      } else {
+        this.root.visible = false;
+      }
       return;
     }
     this.root.visible = true;
@@ -695,7 +707,7 @@ export class Mech {
 
   die(attacker) {
     this.setState('dead');
-    this.deadT = 3.0;
+    this.deadT = DEAD_TIME;
     this.awakeT = 0;
     this.burstQueue = null;
     this.root.userData.saber.visible = false;
@@ -704,6 +716,8 @@ export class Mech {
   }
 
   respawn() {
+    this.root.rotation.set(0, 0, 0);
+    this.root.scale.setScalar(1);
     this.hp = this.maxHp;
     this.boost = C.BOOST_MAX;
     this.overheat = false;
@@ -828,6 +842,8 @@ function meleeDirOf(inp) {
 }
 
 const MECH_RADIUS = 1.35;   // 機体をこの半径の円柱として壁に当てる
+const DEAD_TIME = 3.0;      // 撃墜からリスポーンまで
+const DEAD_SHOW = 0.32;     // そのうち残骸が見えている時間
 
 const BUFFERED = ['melee', 'sp_melee', 'sub', 'sp_shot', 'step'];
 const BUFFER_TIME = 0.35;

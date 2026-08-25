@@ -587,6 +587,11 @@ export class FX {
     this.sphereGeo = new THREE.SphereGeometry(1, 10, 8);
     this.ringGeo = new THREE.RingGeometry(0.7, 1, 20);
     this.ringGeo.rotateX(-Math.PI / 2);
+    this.debrisGeo = new THREE.BoxGeometry(0.34, 0.34, 0.7);
+    // 衝撃波は細い輪。太い輪を巨大化させると、寄りのカメラで
+    // ただの白い帯になって画面を覆ってしまう
+    this.shockGeo = new THREE.RingGeometry(0.975, 1.0, 72);
+    this.shockGeo.rotateX(-Math.PI / 2);
   }
 
   add(mesh, life, fn) {
@@ -641,16 +646,80 @@ export class FX {
     this._ball(_e, '#fff0a0', 1.3, 0.46, 2.6, 18);
     this._ball(_e, '#ff8a3c', 1.9, 0.7, 2.8, 12);
     this._ball(_e, '#ff5a20', 2.6, 0.95, 2.2, 8);
-    const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({
+    const ring = new THREE.Mesh(this.shockGeo, new THREE.MeshBasicMaterial({
       color: 0xffd08a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false,
       blending: THREE.AdditiveBlending, toneMapped: false,
     }));
-    ring.position.copy(_e);
-    this.add(ring, 0.6, (it, p) => {
-      it.mesh.scale.setScalar(2 + p * 26);
-      it.mesh.material.opacity = 0.85 * (1 - p);
+    ring.position.set(pos.x, 0.12, pos.z);
+    this.add(ring, 0.5, (it, p) => {
+      it.mesh.scale.setScalar(2 + p * 13);
+      const f2 = 1 - p;
+      it.mesh.material.opacity = 0.9 * f2 * f2 * f2;
     });
   }
+  // 撃墜演出用の大爆発。通常の explode より段数が多く、破片も飛ぶ
+  finishBlast(pos) {
+    _e.copy(pos); _e.y += 1.6;
+    // 白熱 → 火球 → 燻り
+    this._ball(_e, '#ffffff', 1.6, 0.18, 2.6, 4);
+    this._ball(_e, '#fffbe0', 1.4, 0.4, 3.0, 10);
+    this._ball(_e, '#ffd06a', 2.2, 0.75, 3.4, 16);
+    this._ball(_e, '#ff7a28', 3.2, 1.15, 3.0, 12);
+    this._ball(_e, '#c23a10', 4.0, 1.7, 2.4, 7);
+
+    // 地表を走る衝撃波。2本を少しずらして重ねる。
+    // 縦向きの輪も試したが、下半分が地面に埋まって「輪っか」に見えるのでやめた
+    for (const [delay, grow] of [[0, 22], [0.14, 15]]) {
+      const ring = new THREE.Mesh(this.shockGeo, new THREE.MeshBasicMaterial({
+        color: 0xfff0c0, transparent: true, opacity: 0, side: THREE.DoubleSide,
+        depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+      }));
+      ring.position.set(pos.x, 0.12, pos.z);
+      const life = 0.6 + delay;
+      this.add(ring, life, (it, p) => {
+        const q = Math.max(0, p * life - delay) / 0.6;
+        it.mesh.scale.setScalar(1 + q * grow);
+        const f2 = 1 - q;
+        it.mesh.material.opacity = q <= 0 ? 0 : 0.95 * f2 * f2 * f2;
+      });
+    }
+
+    // 破片: 光る小片が放射状に飛んで落ちる
+    for (let i = 0; i < 14; i++) {
+      const m = new THREE.Mesh(this.debrisGeo, new THREE.MeshBasicMaterial({
+        color: new THREE.Color(i % 3 === 0 ? '#ffd06a' : '#ff8a3c'),
+        transparent: true, opacity: 0.95, depthWrite: false,
+        blending: THREE.AdditiveBlending, toneMapped: false,
+      }));
+      m.position.copy(_e);
+      const dir = new THREE.Vector3().randomDirection();
+      if (dir.y < 0) dir.y = -dir.y;
+      const vel = dir.multiplyScalar(14 + Math.random() * 26);
+      vel.y += 6;
+      const spin = new THREE.Vector3().randomDirection().multiplyScalar(9);
+      const life = 1.1 + Math.random() * 0.7;
+      this.add(m, life, (it, p) => {
+        const dt = 1 / 60;
+        vel.y -= 34 * dt;
+        it.mesh.position.addScaledVector(vel, dt);
+        it.mesh.rotation.x += spin.x * dt;
+        it.mesh.rotation.y += spin.y * dt;
+        it.mesh.rotation.z += spin.z * dt;
+        it.mesh.material.opacity = 0.95 * (1 - p * p);
+      });
+    }
+  }
+
+  // 追撃の小爆発（撃墜演出の途中で散らす）
+  secondary(pos, spread = 4) {
+    _e.copy(pos);
+    _e.x += (Math.random() - 0.5) * spread * 2;
+    _e.y += 1.0 + Math.random() * 2.5;
+    _e.z += (Math.random() - 0.5) * spread * 2;
+    this._ball(_e, '#fff0a0', 0.8, 0.26, 2.4, 8);
+    this._ball(_e, '#ff8a3c', 1.3, 0.5, 2.8, 6);
+  }
+
   burst(pos, color) {
     const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({
       color: new THREE.Color(color), transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
