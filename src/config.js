@@ -507,7 +507,245 @@ export const MECHS = {
               { dmg:90, down:3.0, dur:0.56, knock:22, pull:false } ] },
     },
   },
+
+  // ==================== 1500: 追加 ====================
+  fang: {
+    id: 'fang', name: 'ファング', cost: 1500, hp: 440,
+    role: '格闘', desc: '銃を持たない二刀。最速で殴りに行くが当たれば即溶ける',
+    palette: { main:'#2c2f3a', accent:'#c8324a', trim:'#e8e9ee', joint:'#6b7280', eye:'#ff4d6a', beam:'#ff5a7d', flame:'#ff9ab0' },
+    shape: { head:'mask', shoulder:'wing', back:'blades', gun:'none', saberCount:2, legMain:true, chestDuct:false, forearmFin:false },
+    walk: 15, bdSpeed: 35, bdDrain: 19, stepSpeed: 40, stepCost: 12, stepDur: 0.28,
+    riseSpeed: 18, riseDrain: 22, airMove: 20, meleeCost: 8, boostRecover: 108,
+    weapons: {
+      // 銃が無いぶん、寄るための武装だけを持たせる
+      shot:     { label:'TK', name:'投擲ナイフ', kind:'bullet',
+                  ammo:6, reload:3.4, dmg:22, down:0.5, speed:135, life:1.0,
+                  cooldown:0.34, fireDelay:0.08, homing:0.7, radius:0.26 },
+      sub:      { label:'SB', name:'散弾ブレード', kind:'spread',
+                  ammo:2, reload:6.4, dmg:30, down:0.7, speed:120, life:0.7,
+                  cooldown:0.9, fireDelay:0.14, homing:0.5, radius:0.36,
+                  count:4, spreadAngle:0.16 },
+      sp_shot:  { label:'CB', name:'カッターブーメラン', kind:'boomerang',
+                  ammo:2, reload:7.0, dmg:48, down:1.2, speed:104, life:2.6,
+                  cooldown:1.0, fireDelay:0.16, homing:0.6, radius:0.5, turnAt:0.5 },
+      sp_melee: { label:'DF', name:'ダブルファング', kind:'melee_special',
+                  ammo:2, reload:8.0, dmg:112, down:5.0,
+                  cooldown:1.2, rushSpeed:70, rushRange:58, rushTime:1.0 },
+    },
+    melee: {
+      range: 44, hitRadius: 4.8,
+      n:    { label:'N格闘', rushSpeed:60, rushTime:1.0, stages:[
+              { dmg:44, down:0.6, dur:0.30, knock:2,  pull:true  },
+              { dmg:44, down:0.6, dur:0.30, knock:2,  pull:true  },
+              { dmg:46, down:0.8, dur:0.32, knock:2,  pull:true  },
+              { dmg:74, down:3.0, dur:0.54, knock:18, pull:false } ] },
+      side: { label:'横格闘', rushSpeed:66, rushTime:0.92, arc:0.78, stages:[
+              { dmg:48, down:0.7, dur:0.30, knock:2,  pull:true  },
+              { dmg:52, down:0.8, dur:0.32, knock:2,  pull:true  },
+              { dmg:72, down:3.0, dur:0.52, knock:16, pull:false } ] },
+      fwd:  { label:'前格闘', rushSpeed:76, rushTime:0.86, stages:[
+              { dmg:66, down:2.0, dur:0.40, knock:5,  pull:true  },
+              { dmg:84, down:3.0, dur:0.54, knock:22, pull:false } ] },
+    },
+  },
+
+  bulwark: {
+    id: 'bulwark', name: 'バルワーク', cost: 1500, hp: 610,
+    role: '弾幕', desc: '鈍いが硬い。撃ち続けて相手を近づけない',
+    palette: { main:'#6e7663', accent:'#3b4038', trim:'#d0a03a', joint:'#7b8087', eye:'#ff9a3c', beam:'#ffbf5c', flame:'#ffd9a0' },
+    shape: { head:'twin', shoulder:'drum', back:'tank', gun:'gatling', legMain:true, chestDuct:false, forearmFin:false, kneeGuard:false },
+    walk: 9, bdSpeed: 22, bdDrain: 26, stepSpeed: 25, stepCost: 20, stepDur: 0.40,
+    riseSpeed: 12.5, riseDrain: 30, airMove: 11, meleeCost: 18, boostRecover: 88,
+    weapons: {
+      shot:     { label:'GG', name:'ガトリング', kind:'bullet',
+                  ammo:60, reload:5.0, dmg:11, down:0.22, speed:150, life:1.2,
+                  cooldown:0.07, fireDelay:0.05, homing:0.5, radius:0.26, burst:6, burstGap:0.06 },
+      sub:      { label:'GL', name:'グレネード', kind:'shell',
+                  ammo:3, reload:6.5, dmg:78, down:2.5, speed:70, life:2.4,
+                  cooldown:0.95, fireDelay:0.26, homing:0.35, radius:0.85, splash:8, arc:0.34 },
+      sp_shot:  { label:'FS', name:'散弾砲', kind:'spread',
+                  ammo:3, reload:6.2, dmg:24, down:0.5, speed:118, life:0.8,
+                  cooldown:0.9, fireDelay:0.18, homing:0.45, radius:0.36,
+                  count:5, spreadAngle:0.2 },
+      sp_melee: { label:'RM', name:'ラムアタック', kind:'melee_special',
+                  ammo:1, reload:9.5, dmg:104, down:5.0,
+                  cooldown:1.5, rushSpeed:44, rushRange:34, rushTime:0.85 },
+    },
+    melee: {
+      range: 32, hitRadius: 5.0,
+      n:    { label:'N格闘', rushSpeed:36, rushTime:0.9, stages:[
+              { dmg:64, down:1.0, dur:0.50, knock:3,  pull:true  },
+              { dmg:88, down:3.0, dur:0.68, knock:20, pull:false } ] },
+      side: { label:'横格闘', rushSpeed:40, rushTime:0.88, arc:0.42, stages:[
+              { dmg:70, down:1.2, dur:0.48, knock:4,  pull:true  },
+              { dmg:84, down:3.0, dur:0.66, knock:18, pull:false } ] },
+      fwd:  { label:'前格闘', rushSpeed:46, rushTime:0.82, stages:[
+              { dmg:96, down:3.0, dur:0.62, knock:24, pull:false } ] },
+    },
+  },
+
+  // ==================== 2000: 追加 ====================
+  hazel: {
+    id: 'hazel', name: 'ヘイゼル', cost: 2000, hp: 600,
+    role: '設置', desc: '地雷で通り道を潰す。正面から撃ち合う機体ではない',
+    palette: { main:'#8a9a6b', accent:'#31382c', trim:'#e0642e', joint:'#79808a', eye:'#b6ff5a', beam:'#a8ff6a', flame:'#d8ffa0' },
+    shape: { head:'mask', shoulder:'drum', back:'tank', gun:'machinegun', legMain:true, chestDuct:false },
+    walk: 12, bdSpeed: 26, bdDrain: 23, stepSpeed: 30, stepCost: 16, stepDur: 0.35,
+    riseSpeed: 15, riseDrain: 26, airMove: 15, meleeCost: 14, boostRecover: 100,
+    weapons: {
+      shot:     { label:'AR', name:'アサルトライフル', kind:'bullet',
+                  ammo:24, reload:3.4, dmg:16, down:0.35, speed:145, life:1.2,
+                  cooldown:0.11, fireDelay:0.07, homing:0.6, radius:0.28, burst:3, burstGap:0.08 },
+      // 設置武装。相手の足元ではなく手前に落ちる (dropAt)
+      sub:      { label:'MN', name:'散布地雷', kind:'mine',
+                  ammo:2, reload:8.0, dmg:96, down:3.0, speed:34, life:16,
+                  cooldown:1.1, fireDelay:0.24, homing:0, radius:0.5,
+                  splash:9, arc:0.5, armTime:0.7, trigger:7, dropAt:0.55 },
+      sp_shot:  { label:'SM', name:'散布地雷（3）', kind:'mine',
+                  ammo:1, reload:11.0, dmg:70, down:2.0, speed:30, life:14,
+                  cooldown:1.5, fireDelay:0.3, homing:0, radius:0.45,
+                  splash:8, arc:0.6, armTime:0.7, trigger:6.5, dropAt:0.42,
+                  count:3, launchGap:0.1 },
+      sp_melee: { label:'CH', name:'チェーンソー', kind:'melee_special',
+                  ammo:1, reload:9.0, dmg:118, down:5.0,
+                  cooldown:1.35, rushSpeed:50, rushRange:42, rushTime:0.9 },
+    },
+    melee: {
+      range: 36, hitRadius: 4.6,
+      n:    { label:'N格闘', rushSpeed:44, rushTime:0.92, stages:[
+              { dmg:58, down:0.8, dur:0.42, knock:2,  pull:true  },
+              { dmg:56, down:0.8, dur:0.42, knock:2,  pull:true  },
+              { dmg:86, down:3.0, dur:0.62, knock:18, pull:false } ] },
+      side: { label:'横格闘', rushSpeed:48, rushTime:0.9, arc:0.56, stages:[
+              { dmg:60, down:1.0, dur:0.40, knock:3,  pull:true  },
+              { dmg:82, down:3.0, dur:0.58, knock:16, pull:false } ] },
+      fwd:  { label:'前格闘', rushSpeed:54, rushTime:0.84, stages:[
+              { dmg:72, down:2.0, dur:0.48, knock:6,  pull:true  },
+              { dmg:86, down:3.0, dur:0.58, knock:20, pull:false } ] },
+    },
+  },
+
+  // ==================== 2500: 追加 ====================
+  lance: {
+    id: 'lance', name: 'ランス', cost: 2500, hp: 620,
+    role: '狙撃', desc: '長射程の貫通弾。誘導が弱いので当てるのは自分の腕',
+    palette: { main:'#33465e', accent:'#c9d3e0', trim:'#4ad0c0', joint:'#7d8794', eye:'#7dffe8', beam:'#6ff0d8', flame:'#a8f5ea' },
+    shape: { head:'twin', shoulder:'shield', back:'cannon', gun:'bow', forearmFin:false },
+    walk: 11, bdSpeed: 26, bdDrain: 24, stepSpeed: 30, stepCost: 17, stepDur: 0.36,
+    riseSpeed: 14.5, riseDrain: 27, airMove: 14, meleeCost: 16, boostRecover: 96,
+    weapons: {
+      // 射程と一発の重さで差を付ける。誘導は他より弱いが、
+      // このゲームに手動照準は無いので下げすぎるとただ当たらないだけになる
+      shot:     { label:'LR', name:'ロングライフル', kind:'beam', pierce: true,
+                  ammo:6, reload:4.2, dmg:84, down:2.4, speed:230, life:2.2,
+                  cooldown:0.88, fireDelay:0.24, homing:0.75, radius:0.4 },
+      sub:      { label:'PC', name:'パルスキャノン', kind:'laser',
+                  ammo:1, reload:7.5, dmg:34, down:0.5, life:1.1,
+                  cooldown:1.35, fireDelay:0.3, range:120, radius:1.5, tick:0.1 },
+      sp_shot:  { label:'SG', name:'狙撃グレネード', kind:'shell',
+                  ammo:2, reload:7.5, dmg:88, down:3.0, speed:92, life:2.6,
+                  cooldown:1.05, fireDelay:0.3, homing:0.55, radius:0.85, splash:7, arc:0.2 },
+      sp_melee: { label:'BL', name:'ブレイクランス', kind:'melee_special',
+                  ammo:1, reload:9.5, dmg:124, down:5.0,
+                  cooldown:1.4, rushSpeed:56, rushRange:50, rushTime:0.95 },
+    },
+    melee: {
+      range: 36, hitRadius: 4.6,
+      n:    { label:'N格闘', rushSpeed:46, rushTime:0.92, stages:[
+              { dmg:62, down:0.9, dur:0.44, knock:3,  pull:true  },
+              { dmg:90, down:3.0, dur:0.62, knock:20, pull:false } ] },
+      side: { label:'横格闘', rushSpeed:50, rushTime:0.9, arc:0.6, stages:[
+              { dmg:58, down:0.8, dur:0.40, knock:2,  pull:true  },
+              { dmg:60, down:1.0, dur:0.42, knock:3,  pull:true  },
+              { dmg:78, down:3.0, dur:0.58, knock:16, pull:false } ] },
+      fwd:  { label:'前格闘', rushSpeed:60, rushTime:0.82, stages:[
+              { dmg:100, down:3.0, dur:0.62, knock:24, pull:false } ] },
+    },
+  },
+
+  // ==================== 3000: 追加 ====================
+  garuda: {
+    id: 'garuda', name: 'ガルーダ', cost: 3000, hp: 680,
+    role: '空戦', desc: '上昇と空中機動が突出。地上に降りると持ち味が消える',
+    palette: { main:'#e6ecf4', accent:'#2a6ec8', trim:'#f2c53d', joint:'#8b95a3', eye:'#8fe8ff', beam:'#6fc8ff', flame:'#a8dcff' },
+    shape: { head:'horn', shoulder:'wing', back:'wings', gun:'twin' },
+    walk: 11, bdSpeed: 29, bdDrain: 20, stepSpeed: 33, stepCost: 15, stepDur: 0.32,
+    // 上昇と空中移動に全振り。ブースト回復は遅く、降りると立て直しに時間がかかる
+    riseSpeed: 24, riseDrain: 19, airMove: 26, meleeCost: 12, boostRecover: 86,
+    weapons: {
+      shot:     { label:'TB', name:'ツインビーム', kind:'spread',
+                  ammo:6, reload:3.4, dmg:46, down:1.1, speed:170, life:1.5,
+                  cooldown:0.66, fireDelay:0.14, homing:0.85, radius:0.4,
+                  count:2, spreadAngle:0.045 },
+      sub:      { label:'DM', name:'降下ミサイル', kind:'missile',
+                  ammo:4, reload:6.0, dmg:34, down:0.7, speed:104, life:2.6,
+                  cooldown:0.9, fireDelay:0.16, homing:2.0, radius:0.42, splash:5,
+                  count:4, launchGap:0.07, arc:0.4 },
+      sp_shot:  { label:'DB', name:'ダイブビーム', kind:'beam', pierce: true,
+                  ammo:3, reload:6.5, dmg:78, down:2.2, speed:200, life:1.6,
+                  cooldown:1.0, fireDelay:0.2, homing:0.7, radius:0.46 },
+      sp_melee: { label:'FD', name:'フォールダウン', kind:'melee_special',
+                  ammo:2, reload:8.5, dmg:126, down:5.0,
+                  cooldown:1.3, rushSpeed:74, rushRange:62, rushTime:1.05 },
+    },
+    melee: {
+      range: 42, hitRadius: 4.8,
+      n:    { label:'N格闘', rushSpeed:58, rushTime:1.0, stages:[
+              { dmg:56, down:0.8, dur:0.38, knock:2,  pull:true  },
+              { dmg:58, down:0.8, dur:0.38, knock:2,  pull:true  },
+              { dmg:88, down:3.0, dur:0.58, knock:20, pull:false } ] },
+      side: { label:'横格闘', rushSpeed:64, rushTime:0.94, arc:0.72, stages:[
+              { dmg:60, down:0.9, dur:0.36, knock:3,  pull:true  },
+              { dmg:86, down:3.0, dur:0.56, knock:18, pull:false } ] },
+      fwd:  { label:'前格闘', rushSpeed:72, rushTime:0.86, stages:[
+              { dmg:80, down:2.0, dur:0.44, knock:6,  pull:true  },
+              { dmg:92, down:3.0, dur:0.56, knock:24, pull:false } ] },
+    },
+  },
+
+  sovereign: {
+    id: 'sovereign', name: 'ソヴリン', cost: 3000, hp: 740,
+    role: '格闘', desc: '3000の格闘機。押し切る力はあるが、迎撃されると重い',
+    palette: { main:'#1f2430', accent:'#a4832e', trim:'#b03a4a', joint:'#8d949e', eye:'#ffcf4d', beam:'#ffb03c', flame:'#ffcf8a' },
+    shape: { head:'crest', shoulder:'blade', back:'blades', gun:'rifle', saberCount:2, legMain:true },
+    walk: 13.5, bdSpeed: 31, bdDrain: 21, stepSpeed: 36, stepCost: 14, stepDur: 0.32,
+    riseSpeed: 17, riseDrain: 24, airMove: 18, meleeCost: 11, boostRecover: 104,
+    weapons: {
+      shot:     { label:'BR', name:'ビームライフル', kind:'beam',
+                  ammo:7, reload:3.4, dmg:72, down:2.0, speed:165, life:1.5,
+                  cooldown:0.66, fireDelay:0.16, homing:0.9, radius:0.44 },
+      sub:      { label:'GB', name:'グレイブブーメラン', kind:'boomerang',
+                  ammo:3, reload:5.5, dmg:62, down:1.4, speed:118, life:3.0,
+                  cooldown:0.85, fireDelay:0.16, homing:0.85, radius:0.55, turnAt:0.62 },
+      sp_shot:  { label:'RB', name:'ロングビーム', kind:'laser',
+                  ammo:1, reload:8.0, dmg:30, down:0.45, life:1.3,
+                  cooldown:1.4, fireDelay:0.28, range:104, radius:1.7, tick:0.1 },
+      sp_melee: { label:'RS', name:'ロイヤルスラッシュ', kind:'melee_special',
+                  ammo:2, reload:8.0, dmg:140, down:5.0,
+                  cooldown:1.25, rushSpeed:66, rushRange:56, rushTime:1.0 },
+    },
+    melee: {
+      range: 47, hitRadius: 5.0,
+      n:    { label:'N格闘', rushSpeed:54, rushTime:1.0, stages:[
+              { dmg:58, down:0.7, dur:0.36, knock:2,  pull:true  },
+              { dmg:56, down:0.7, dur:0.36, knock:2,  pull:true  },
+              { dmg:60, down:0.8, dur:0.38, knock:2,  pull:true  },
+              { dmg:92, down:3.0, dur:0.60, knock:22, pull:false } ] },
+      side: { label:'横格闘', rushSpeed:60, rushTime:0.96, arc:0.7, stages:[
+              { dmg:64, down:0.9, dur:0.36, knock:3,  pull:true  },
+              { dmg:66, down:1.0, dur:0.38, knock:3,  pull:true  },
+              { dmg:88, down:3.0, dur:0.58, knock:20, pull:false } ] },
+      fwd:  { label:'前格闘', rushSpeed:68, rushTime:0.88, stages:[
+              { dmg:86, down:2.0, dur:0.46, knock:8,  pull:true  },
+              { dmg:98, down:3.0, dur:0.58, knock:26, pull:false } ] },
+    },
+  },
 };
 
-export const MECH_ORDER = ['lava', 'vespa', 'brave', 'aegis', 'garm', 'orca',
-                           'nox', 'grave', 'tempest', 'titan', 'vulca', 'seraph'];
+// コスト帯ごとに並べる（選択画面の並び順）
+export const MECH_ORDER = [
+  'lava', 'vespa', 'fang', 'bulwark',
+  'brave', 'aegis', 'garm', 'orca', 'hazel',
+  'nox', 'grave', 'tempest', 'titan', 'lance',
+  'vulca', 'seraph', 'garuda', 'sovereign',
+];

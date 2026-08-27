@@ -103,6 +103,18 @@ export class Projectiles {
       // 誘導が狙点のズレを引き継ぐように、素の狙点との差分を持たせる
       // (これが無いと CPU の外した弾が敵に吸い戻される)
       aimOff.copy(_v).sub(tgt.pos); aimOff.y -= 1.3;
+      // 地雷は相手に当てる物ではなく通り道に置く物。
+      // そのまま狙うと足元に落ちて即起爆し、ただの遅いグレネードになる
+      if (w.kind === 'mine') {
+        // 複数まくときに 1 点へ固まらないよう、落点も横位置もばらす
+        const f = (w.dropAt ?? 0.55) * (0.82 + Math.random() * 0.36);
+        const sc = w.scatter ?? 9;
+        _v.set(from.x + (_v.x - from.x) * f + (Math.random() - 0.5) * sc,
+               0,
+               from.z + (_v.z - from.z) * f + (Math.random() - 0.5) * sc);
+        dist = Math.hypot(_v.x - from.x, _v.z - from.z);
+        aimOff.set(0, 0, 0);
+      }
       // 山なり弾は落下ぶんを撃ち上げて狙う。arc はさらに山を高くする係数。
       // (固定角度を足すだけだと距離によって大きく外れる)
       if (gravity) {
@@ -156,6 +168,9 @@ export class Projectiles {
       hitSet: (w.pierce || w.kind === 'boomerang') ? new Set() : null,   // 消えずに通過する弾。同じ相手を連続で刺さない
       boomT: 0,                              // ブーメラン: 折り返しまでの経過
       returning: false,
+      stuck: false,                          // 地雷: 着地したか
+      armT: 0,                               // 地雷: 着地からの経過
+      blast: false,                          // 地雷: 起爆した
     };
     p.netId = this.nextNetId++;
     this.world.scene.add(mesh);
@@ -182,6 +197,19 @@ export class Projectiles {
         // userData に参照を入れても clone() で JSON 化されて壊れる
         proto.add(blade);
         proto.add(makeGlowBall(0.55, color, 0.3));
+      } else if (w.kind === 'mine') {
+        // 地雷: 地面に転がる暗い塊＋起爆灯。
+        // 発光は小さく抑える。踏むまで気づかせない武装なので、
+        // 遠くから光って見えると置く意味が無くなる
+        proto = new THREE.Group();
+        const body = new THREE.Mesh(
+          new THREE.CylinderGeometry(w.radius * 1.5, w.radius * 1.8, w.radius * 1.1, 8),
+          new THREE.MeshStandardMaterial({ color: 0x2a2f38, metalness: 0.7, roughness: 0.45 })
+        );
+        proto.add(body);
+        const lamp = makeGlowBall(w.radius * 0.55, color, 0.8);
+        lamp.position.y = w.radius * 0.8;
+        proto.add(lamp);            // children[1] を点滅させる
       } else if (w.kind === 'bullet') {
         proto = new THREE.Group();
         proto.add(makeGlowBall(Math.max(w.radius, 0.22), '#ffffff', 0.95));
@@ -310,11 +338,39 @@ export class Projectiles {
         if (p.mesh.children[0]) p.mesh.children[0].rotation.y += dt * 26;
       }
 
+      // 地雷: 地面に着いたらそこに留まり、起爆待ちに入る
+      if (p.w.kind === 'mine' && p.stuck) {
+        p.armT += dt;
+        const lamp = p.mesh.children[1];
+        // 起爆前は速く、待機中はゆっくり点滅させて「生きている」ことを見せる
+        if (lamp) lamp.visible = Math.sin(p.armT * (p.armT < (p.w.armTime || 0.6) ? 26 : 6)) > -0.2;
+      }
+
       _prev.copy(p.pos);
       p.pos.addScaledVector(p.vel, dt);
       p.mesh.position.copy(p.pos);
       if (p.w.kind !== 'bullet') {
         p.mesh.lookAt(p.pos.x + p.vel.x, p.pos.y + p.vel.y, p.pos.z + p.vel.z);
+      }
+
+      if (p.w.kind === 'mine' && !p.stuck) {
+        const floor = this.world.collision ? this.world.collision.floorAt(p.pos.x, p.pos.z) : 0;
+        if (p.pos.y <= floor + 0.4) {
+          p.pos.y = floor + 0.4;
+          p.vel.set(0, 0, 0);
+          p.gravity = 0;
+          p.stuck = true;
+          p.mesh.position.copy(p.pos);
+          p.mesh.rotation.set(0, Math.random() * 6.28, 0);
+        }
+      }
+      // 起爆: 武装した地雷に敵が近づいたら
+      if (p.w.kind === 'mine' && p.stuck && p.armT >= (p.w.armTime || 0.6)) {
+        for (const m of mechs) {
+          if (!m.alive || m.team === p.owner.team || m.invuln > 0) continue;
+          _v.copy(m.pos); _v.y += 1.2;
+          if (_v.distanceTo(p.pos) < (p.w.trigger || 7)) { p.blast = true; break; }
+        }
       }
 
       let hitSomething = false;
@@ -345,6 +401,11 @@ export class Projectiles {
             p.returning = true; p.vel.negate();
             if (p.hitSet) p.hitSet.clear();
           }
+          // 地雷は壁でも止まる（ビルの角に置ける）
+          else if (p.w.kind === 'mine' && !p.stuck) {
+            p.vel.set(0, 0, 0); p.gravity = 0; p.stuck = true;
+            p.mesh.position.copy(p.pos);
+          }
           else blocked = true;
         }
       }
@@ -357,16 +418,18 @@ export class Projectiles {
       }
 
       const outside = p.pos.y < 0 || Math.hypot(p.pos.x, p.pos.z) > ARENA_R + 20;
-      if (hitSomething || blocked || p.life <= 0 || outside) {
+      if (hitSomething || blocked || p.blast || p.life <= 0 || outside) {
         if (blocked) this.world.fx.hit(p.pos, p.color);   // ビルに着弾
-        if (p.w.splash && (hitSomething || blocked || p.pos.y < 0)) {
+        if (p.w.splash && (hitSomething || blocked || p.blast || p.pos.y < 0)) {
           this.world.fx.explodeSmall(p.pos, '#ffb45c');
           for (const m of mechs) {
             if (!m.alive || m.team === p.owner.team || m.invuln > 0) continue;
             _v.copy(m.pos); _v.y += 1.5;
             if (_v.distanceTo(p.pos) < p.w.splash && !hitSomething) {
               _d.copy(_v).sub(p.pos).normalize();
-              this.world.hit(p.owner, m, p.w.dmg * 0.6, p.w.down * 0.5, _d, 5, 'shell');
+              // 地雷は爆風が本体。砲弾の巻き込みと違って減衰させない
+              const k = p.w.kind === 'mine' ? 1 : 0.6;
+              this.world.hit(p.owner, m, p.w.dmg * k, p.w.down * (k === 1 ? 1 : 0.5), _d, 5, 'shell');
             }
           }
         }

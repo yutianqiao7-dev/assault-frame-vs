@@ -525,8 +525,9 @@ export class Mech {
         const w = this.d.weapons[this.fireKey];
         this.world.spawnShot(this, this.fireKey);
         // burst(実弾の連射) と missile(斉射) を同じ仕組みで撃つ
-        const rep = (w.kind === 'missile' ? w.count : w.burst) || 1;
-        const gap = (w.kind === 'missile' ? w.launchGap : w.burstGap) || 0.09;
+        const salvo = w.kind === 'missile' || w.kind === 'mine';
+        const rep = (salvo ? w.count : w.burst) || 1;
+        const gap = (salvo ? w.launchGap : w.burstGap) || 0.09;
         if (rep > 1) this.burstQueue = { key: this.fireKey, n: rep - 1, t: gap, gap };
       }
     }
