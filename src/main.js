@@ -247,7 +247,8 @@ function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;      // タブ復帰時の巨大 dt をクランプ
-  updateFinish(dt);            // 演出は実時間で進める
+  updateStandby(dt);           // 演出は実時間で進める
+  updateFinish(dt);
   updateFlash(dt);
   tick(dt * timeScale);
   renderFrame();
@@ -391,6 +392,59 @@ buildStagePicker();
 })();
 
 const $ = (id) => document.getElementById(id);
+
+// ==================== 開幕のスタンバイ ====================
+// バトル開始直後に少し間を置き、READY → FIGHT で始める。
+// この間は game.running が false なので入力も戦闘タイマーも進まない。
+// 機体は EMPTY_INPUT で更新され続けるので、棒立ちではなく待機モーションが出る。
+// 演出は実時間で進める（撃墜演出と同じ理由: timeScale に引きずられない）
+const STANDBY = { total: 2.0, fight: 0.66 };
+let standbyT = 0;
+
+function showReady(text, cls) {
+  const b = $('readyBanner');
+  $('readyText').textContent = text;
+  b.className = '';
+  void b.offsetWidth;          // アニメーションを最初から流し直す
+  b.className = cls;
+}
+function hideReady() { $('readyBanner').className = ''; }
+
+function startStandby() {
+  standbyT = STANDBY.total;
+  game.running = false;
+  // 引いた位置から始めて、FIGHT に向けてゆっくり寄る
+  chase.intro = 1;
+  chase.snap(game.self, game.foe);
+  showReady('READY', 'ready');
+}
+
+function updateStandby(dt) {
+  if (standbyT <= 0 || game.paused) return;
+  const prev = standbyT;
+  standbyT -= dt;
+  // 残り時間の 1.5 乗。最初は速く引きが取れて、最後はぴたりと収まる
+  chase.intro = Math.pow(Math.max(0, standbyT) / STANDBY.total, 1.5);
+  if (prev > STANDBY.fight && standbyT <= STANDBY.fight) {
+    showReady('FIGHT!', 'fight');
+    chase.bump(0.35);
+  }
+  if (standbyT <= 0) endStandby();
+}
+
+// スタンバイを終えて動けるようにする
+function endStandby() {
+  standbyT = 0;
+  chase.intro = 0;
+  game.running = true;
+}
+
+// 対戦そのものをやめる。こちらは running を立てない
+function cancelStandby() {
+  standbyT = 0;
+  chase.intro = 0;
+  hideReady();
+}
 
 // ==================== 撃墜演出 ====================
 // 最後の1機を落としたとき、すぐリザルトを出さずに
@@ -675,7 +729,6 @@ function startNetBattle(role) {
   closeNetPanel();
   $('gate').classList.add('hidden');
   hud.show();
-  game.running = true;
   game.paused = false;
   game.over = false;
   $('pauseMenu').classList.add('hidden');
@@ -683,7 +736,9 @@ function startNetBattle(role) {
   $('result').classList.add('hidden');
   $('touch').classList.remove('hidden');
   last = performance.now();
-  hud.message('BATTLE START', '#8fd6ff');
+  // ホストとゲストで開始の合図が RTT ぶんずれるが、
+  // 2 秒の間があるおかげで実質そろう（回線が落ち着く時間にもなる）
+  startStandby();
 }
 
 function opponentLeft() {
@@ -710,19 +765,19 @@ function startBattle() {
   endFinish();
   game.mode = 'cpu';
   game.init(selfId, foeId, level);
-  game.running = true;
   game.paused = false;
   $('pauseMenu').classList.add('hidden');
   $('pauseBtn').classList.remove('hidden');
   $('result').classList.add('hidden');
   $('touch').classList.remove('hidden');
   last = performance.now();
-  hud.message('BATTLE START', '#8fd6ff');
+  startStandby();
 }
 
 // 対戦をやめてタイトルへ戻る
 function toMainMenu() {
   endFinish();
+  cancelStandby();
   if (net.connected) net.send({ t: 'menu' });
   net.close();
   closeNetPanel();
@@ -820,13 +875,15 @@ for (const b of document.querySelectorAll('#modePick .md')) {
 }
 setUiMode('cpu');
 
-$('pauseBtn').addEventListener('click', () => { if (game.running && !game.over) setPaused(true); });
+// スタンバイ中も押せるようにする。ボタンが出ているのに 2 秒間反応しないのは事故に見える
+const canPause = () => (game.running || standbyT > 0) && !game.over;
+$('pauseBtn').addEventListener('click', () => { if (canPause()) setPaused(true); });
 $('resumeBtn').addEventListener('click', () => setPaused(false));
 $('toMenuBtn').addEventListener('click', toMainMenu);
 $('resultMenuBtn').addEventListener('click', toMainMenu);
 addEventListener('keydown', (e) => {
   if (e.code !== 'Escape') return;
-  if (game.running && !game.over) setPaused(!game.paused);
+  if (canPause() || game.paused) setPaused(!game.paused);
 });
 
 $('startBtn').addEventListener('click', () => {
@@ -845,8 +902,11 @@ if (import.meta.env.DEV) {
     sim(n, dt = 1 / 60, onFrame) { for (let i = 0; i < n; i++) { if (onFrame) onFrame(i); tick(dt); } },
     // 演出込みで 1 フレーム進める（rAF が止まる環境で撃墜演出を検証するため）
     frames(n, dt = 1 / 60) {
-      for (let i = 0; i < n; i++) { updateFinish(dt); updateFlash(dt); tick(dt * timeScale); }
+      for (let i = 0; i < n; i++) {
+        updateStandby(dt); updateFinish(dt); updateFlash(dt); tick(dt * timeScale);
+      }
     },
+    standby: { get t() { return standbyT; }, get intro() { return chase.intro; }, skip: endStandby },
     finish: { get seq() { return finishSeq; }, get scale() { return timeScale; } },
     netMsg: (m) => netOnMessage(m),
     render() { renderFrame(); },

@@ -15,6 +15,8 @@ export class ChaseCamera {
     this.look = new THREE.Vector3();
     this.shake = 0;
     this.portrait = false;
+    // 開幕の引き。1 で大きく引いて高く、0 で通常。main.js がスタンバイ中に減らす
+    this.intro = 0;
   }
 
   bump(v = 1) { this.shake = Math.min(1.4, this.shake + v); }
@@ -84,8 +86,9 @@ export class ChaseCamera {
 
     // 自機基準で組む。注視点に敵の高度をそのまま混ぜると、
     // 敵が上に居るときに自機が画面下に押し出されるので、寄与は 0.3 に抑える。
-    const back = THREE.MathUtils.clamp(11 + dist * 0.12, 11, 22) * (this.portrait ? 1.22 : 1);
-    const camH = 4.8;                                            // 自機からのカメラ高
+    const back = THREE.MathUtils.clamp(11 + dist * 0.12, 11, 22)
+      * (this.portrait ? 1.22 : 1) * (1 + this.intro * 0.6);
+    const camH = 4.8 + this.intro * 7.0;                         // 自機からのカメラ高
     const ahead = THREE.MathUtils.clamp(dist * 0.55, 10, 34);    // 注視点を前に置く距離
     const dy = target && target.alive ? target.pos.y - sp.y : 0;
     const lookH = 1.2 + THREE.MathUtils.clamp(dy * 0.3, -3, 9);
