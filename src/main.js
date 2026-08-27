@@ -335,6 +335,9 @@ function buildStagePicker() {
     b.dataset.id = id;
     b.innerHTML = `<span class="spName">${s.name}</span><span class="spDesc">${s.desc}</span>`;
     b.addEventListener('click', () => pickStage(id));
+    // 触れた時点で裏で取りに行く。起動時に全部落とすと、
+    // 遊ばないステージのぶんまで毎回ダウンロードすることになる
+    b.addEventListener('pointerenter', () => prefetchStage(id), { once: true });
     box.appendChild(b);
   }
   markStage();
@@ -385,8 +388,6 @@ buildStagePicker();
   game.init(selfId, foeId, level);
   last = performance.now();
   requestAnimationFrame(frame);
-  // もう片方も裏で取っておくと、選び直したときに待たされない
-  for (const id of STAGE_ORDER) if (id !== stageId) prefetchStage(id);
 })();
 
 const $ = (id) => document.getElementById(id);
