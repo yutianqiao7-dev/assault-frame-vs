@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import * as C from './config.js';
-import { buildArena } from './arena.js';
+import { buildStage, prefetchStage, STAGES, STAGE_ORDER, DEFAULT_STAGE } from './stages.js';
 import { Mech, EMPTY_INPUT } from './mech.js';
+import { loadMechParts } from './mechmodel.js';
 import { Projectiles, FX } from './combat.js';
 import { ChaseCamera } from './camera.js';
 import { Input } from './input.js';
@@ -35,9 +36,28 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(52, 1, 0.5, 1200);
 const chase = new ChaseCamera(camera);
 
-const arena = buildArena(scene, renderer);
-chase.colliders = arena.buildings;   // カメラがビルにめり込まないように
-const collision = new Collision(arena.boxes);
+const collision = new Collision([]);
+let arena = null;
+let stageId = localStorage.getItem('gvs.stage') || DEFAULT_STAGE;
+if (!STAGES[stageId]) stageId = DEFAULT_STAGE;
+
+// ステージを差し替える。GLB を読むものがあるので非同期
+let stageLoading = null;
+async function setStage(id) {
+  if (arena && arena.id === id) return;
+  const p = (async () => {
+    const built = await buildStage(scene, renderer, id);
+    if (arena) arena.dispose();
+    built.id = id;
+    arena = built;
+    chase.colliders = arena.buildings;   // カメラがビルにめり込まないように
+    collision.boxes = arena.boxes;
+    camera.far = arena.far;
+    camera.updateProjectionMatrix();
+  })();
+  stageLoading = p;
+  try { await p; } finally { if (stageLoading === p) stageLoading = null; }
+}
 
 // ---------- ポストプロセス ----------
 // ビーム・サーベル・スラスターは加算合成の発光体として描いているので、
@@ -304,10 +324,70 @@ buildPicker('selfPick', false);
 buildPicker('foePick', true);
 describe(selfId);
 
+// ---------- ステージ選択 ----------
+function buildStagePicker() {
+  const box = document.getElementById('stagePick');
+  box.innerHTML = '';
+  for (const id of STAGE_ORDER) {
+    const s = STAGES[id];
+    const b = document.createElement('button');
+    b.className = 'sp';
+    b.dataset.id = id;
+    b.innerHTML = `<span class="spName">${s.name}</span><span class="spDesc">${s.desc}</span>`;
+    b.addEventListener('click', () => pickStage(id));
+    box.appendChild(b);
+  }
+  markStage();
+}
+function markStage() {
+  for (const o of document.getElementById('stagePick').children) {
+    o.classList.toggle('on', o.dataset.id === stageId);
+  }
+}
+async function pickStage(id) {
+  if (id === stageId && arena) return;
+  stageId = id;
+  localStorage.setItem('gvs.stage', id);
+  markStage();
+  const box = document.getElementById('stagePick');
+  box.classList.add('loading');
+  try {
+    await setStage(id);
+    if (!game.running) game.init(selfId, foeId, level);   // 背景プレビューを作り直す
+  } catch (e) {
+    console.error(e);
+    hud.message('ステージを読み込めませんでした', '#ff6b74');
+    stageId = DEFAULT_STAGE; markStage();
+    await setStage(DEFAULT_STAGE);
+  } finally {
+    box.classList.remove('loading');
+  }
+}
+buildStagePicker();
+
 // ---------- 起動 ----------
 // タイトルの背景には選択中の組み合わせを出す
-game.init(selfId, foeId, level);
-requestAnimationFrame(frame);
+(async () => {
+  // Blender 製の機体パーツ。読めなければ手続き生成のプリミティブに落ちる
+  const asset = (f) => `${import.meta.env.BASE_URL}${f}`;
+  try {
+    await loadMechParts(asset('models/mechparts.glb'), asset('draco/'));
+  } catch (e) {
+    console.warn('機体パーツを読み込めませんでした。簡易モデルで続行します', e);
+  }
+  try {
+    await setStage(stageId);
+  } catch (e) {
+    console.error(e);
+    stageId = DEFAULT_STAGE; markStage();
+    await setStage(DEFAULT_STAGE);
+  }
+  game.init(selfId, foeId, level);
+  last = performance.now();
+  requestAnimationFrame(frame);
+  // もう片方も裏で取っておくと、選び直したときに待たされない
+  for (const id of STAGE_ORDER) if (id !== stageId) prefetchStage(id);
+})();
 
 const $ = (id) => document.getElementById(id);
 
@@ -476,13 +556,23 @@ function netOnMessage(m) {
   }
   if (m.t === 'hello') {           // ゲストが機体を伝えてきた
     guestFoeId = C.MECHS[m.mech] ? m.mech : 'garm';
-    net.send({ t: 'start', h: selfId, g: guestFoeId });
+    net.send({ t: 'start', h: selfId, g: guestFoeId, st: stageId });
     startNetBattle('host');
     return;
   }
   if (m.t === 'start') {           // ホストが開始を宣言
     hostMechId = C.MECHS[m.h] ? m.h : 'brave';
-    startNetBattle('guest');
+    // ステージはホストに合わせる。読み込み待ちの間に来るスナップショットは
+    // guestReady が立つまで捨てられるので、遅れても追いつける
+    const want = STAGES[m.st] ? m.st : DEFAULT_STAGE;
+    if (want !== stageId || !arena) {
+      netStatusText('netJoinStatus', 'ステージを読み込んでいます…');
+      setStage(want)
+        .then(() => { stageId = want; markStage(); startNetBattle('guest'); })
+        .catch(() => { netStatusText('netJoinStatus', 'ステージを読み込めませんでした', true); net.close(); });
+    } else {
+      startNetBattle('guest');
+    }
     return;
   }
   if (m.t === 's') { lastSnapshot = m; guestReady = true; return; }
@@ -660,6 +750,7 @@ function setUiMode(m) {
   $('startBtn').classList.toggle('hidden', m !== 'cpu');
   $('netPick').classList.toggle('hidden', m !== 'net');
   $('foePick').parentElement.classList.toggle('hidden', m !== 'cpu');  // 相手機はホストが決めない
+  $('stageNote').textContent = m === 'cpu' ? '' : '部屋を作った側のものが使われます';
 }
 
 function openNetPanel(kind) {
@@ -758,5 +849,26 @@ if (import.meta.env.DEV) {
     finish: { get seq() { return finishSeq; }, get scale() { return timeScale; } },
     netMsg: (m) => netOnMessage(m),
     render() { renderFrame(); },
+    // プレビューが非表示だと rAF が止まり、描画バッファも 1x1 のままになる。
+    // 明示的にサイズを与えて描き、dev サーバの /__shot に投げて目視確認する
+    async shot(name, opt = {}) {
+      const W = opt.w || 1280, H = opt.h || 720;
+      if (opt.frames) this.frames(opt.frames);
+      if (opt.at) { camera.position.set(...opt.at); camera.lookAt(...(opt.look || [0, 1.5, 0])); }
+      renderer.setSize(W, H, false);
+      composer.setSize(W, H); bloom.setSize(W, H);
+      camera.aspect = W / H; camera.updateProjectionMatrix();
+      renderer.domElement.width = W; renderer.domElement.height = H;
+      renderer.setSize(W, H, false);
+      renderFrame();
+      const url = renderer.domElement.toDataURL('image/jpeg', 0.88);
+      await fetch(`/__shot/${name}`, { method: 'POST', body: url.split(',')[1] });
+      return name;
+    },
+    // 機体を正面から見る定番のカット
+    async mechShot(name, mech, dist = 5.4, side = 0, up = 1.6) {
+      const p = (mech || game.self).pos;
+      return this.shot(name, { at: [p.x + side, p.y + up, p.z + dist], look: [p.x, p.y + 1.45, p.z] });
+    },
   };
 }

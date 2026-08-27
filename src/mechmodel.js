@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { makeBeamBody, glowMaterial } from './glow.js';
 
 // プリミティブから機体を組む。全高は約 3.0 ユニット。
@@ -53,6 +55,68 @@ function panelTexture() {
   panelTex.wrapS = panelTex.wrapT = THREE.RepeatWrapping;
   panelTex.anisotropy = 4;
   return panelTex;
+}
+
+// 腰（pelvis グループ）の基準高さ。mech.js の着地・しゃがみもここを基準に動かすので、
+// 変えるときは必ずこの定数を経由すること
+export const HIP_Y = 1.62;
+
+// ---------- Blender 製パーツライブラリ ----------
+// tools/blender_mech_parts.py が書き出した mechparts.glb を読む。
+// 骨組み（可動ピボット）は下の手続き生成のまま。ここで差し替わるのは
+// そこにぶら下がる見た目だけなので、アニメーションも当たり判定も変わらない。
+// 読み込みに失敗したら手続き生成のプリミティブにそのまま戻る。
+let PARTS = null;
+
+export async function loadMechParts(url, decoderPath) {
+  const draco = new DRACOLoader();
+  draco.setDecoderPath(decoderPath);
+  draco.setDecoderConfig({ type: 'wasm' });
+  const loader = new GLTFLoader();
+  loader.setDRACOLoader(draco);
+  const gltf = await loader.loadAsync(url);
+  const map = new Map();
+  for (const o of gltf.scene.children) map.set(o.name, o);
+  PARTS = map;
+  return map;
+}
+export function hasMechParts() { return !!PARTS; }
+
+// 機体ごとの配色。GLB 側のマテリアル名をパレットに割り当て直す。
+// legMain は「胸と脚 / 腰」のどちらを主色にするかの二色分けスイッチ
+function partMats(P, sh, kind) {
+  const swap = !sh.legMain;
+  const A = swap ? P.accent : P.main;
+  const B = swap ? P.main : P.accent;
+  let m0 = P.main, m1 = P.accent;
+  if (kind === 'leg' || kind === 'torso') { m0 = A; m1 = B; }
+  else if (kind === 'pelvis') { m0 = B; m1 = A; }
+  return {
+    m_main: mat(m0),
+    m_accent: mat(m1),
+    m_trim: mat(P.trim),
+    m_joint: mat(P.joint, { kind: 'metal' }),
+    m_frame: mat('#2b303a', { kind: 'metal' }),
+    m_eye: mat(P.eye, { emissive: P.eye, emissiveIntensity: 2.6, kind: 'flat', noPanel: true }),
+    m_gold: mat('#f5c542'),
+    m_gun: mat('#2c3340', { kind: 'metal' }),
+    m_glow: mat(P.beam, { emissive: P.beam, emissiveIntensity: 1.4 }),
+  };
+}
+
+// ライブラリからパーツを複製してマテリアルを差し替える。
+// clone() はジオメトリとマテリアルを参照で共有するので、複製自体は安い
+function part(name, P, sh, kind) {
+  const src = PARTS && PARTS.get(name);
+  if (!src) return null;
+  const pal = partMats(P, sh, kind || name);
+  const o = src.clone(true);
+  o.traverse((n) => {
+    if (!n.isMesh) return;
+    n.material = pal[n.material?.name] || pal.m_main;
+    n.castShadow = true;
+  });
+  return o;
 }
 
 const mats = new Map();
@@ -180,6 +244,24 @@ function makeArm(P, side, shape) {
 
   const frame = mat('#2b303a', { kind: 'metal' });
 
+  if (PARTS) {
+    // 肩は「左」用に作ってあるので、右は X 反転で使う。
+    // three.js は行列式が負のとき法線と面の向きを自動で反転させる
+    const sp = part('sh_' + shape.shoulder, P, shape, 'shoulder');
+    if (sp) { sp.scale.x = s; pivot.add(sp); }
+    if (shape.shoulder === 'shield' && s < 0) {
+      const pl = part('sh_shieldplate', P, shape, 'shoulder');
+      if (pl) { pl.scale.x = s; pivot.add(pl); }
+    }
+    const a = part('arm', P, shape, 'arm');
+    if (a) pivot.add(a);
+    if (shape.forearmFin) {
+      const f = part('arm_fin', P, shape, 'arm');
+      if (f) pivot.add(f);
+    }
+    return { pivot };
+  }
+
   addShoulder(pivot, P, shape.shoulder, s);
   pivot.add(sph(0.16, joint, 0.05 * s, -0.16, 0));
   // 装甲の内側に暗いフレームを一段細く入れて、板の重なりを見せる
@@ -202,6 +284,14 @@ function makeLeg(P, side, shape) {
   const legMat = shape.legMain ? main : acc;
 
   const frame = mat('#2b303a', { kind: 'metal' });
+
+  if (PARTS) {
+    const lg = part('leg', P, shape, 'leg');
+    if (lg) pivot.add(lg);
+    if (shape.kneeGuard) { const k = part('leg_knee', P, shape, 'leg'); if (k) pivot.add(k); }
+    if (shape.calfThruster) { const c = part('leg_calf', P, shape, 'leg'); if (c) pivot.add(c); }
+    return { pivot };
+  }
 
   pivot.add(sph(0.17, joint, 0, -0.05, 0));
   pivot.add(box(0.28, 0.6, 0.3, frame, 0, -0.36, 0));
@@ -411,6 +501,36 @@ function addBack(torso, P, kind, flameMat, thrusters) {
   return pack;
 }
 
+// Blender 製バックパック。噴射炎は加算合成なので手続きのまま
+function addBackParts(torso, P, sh, flameMat, thrusters) {
+  const pack = part('bk_' + sh.back, P, sh, 'back') || part('bk_pack', P, sh, 'back');
+  if (pack) torso.add(pack);
+  const dx = sh.back === 'booster' ? 0.215 : 0.155;
+  for (const x of [-dx, dx]) {
+    const fl = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1.4, 8), flameMat);
+    fl.position.set(x, -0.26, -0.80);
+    fl.rotation.x = -Math.PI / 2 + 0.3;
+    fl.visible = false;
+    torso.add(fl);
+    thrusters.push(fl);
+  }
+  return pack;
+}
+
+// 銃口までの距離。combat.js が muzzle の位置から弾を出すので、
+// Blender 側の銃身の長さと合わせておくこと
+const GUN_REACH = {
+  rifle: 0.93, machinegun: 0.78, cannon: 1.20,
+  twin: 0.77, bow: 1.34, gatling: 0.86, none: 0.35,
+};
+function addGunPart(gun, P, sh) {
+  if (sh.gun !== 'none') {
+    const g = part('gun_' + sh.gun, P, sh, 'gun');
+    if (g) gun.add(g);
+  }
+  return GUN_REACH[sh.gun] ?? 0.9;
+}
+
 export function buildMech(P, shape = {}) {
   const sh = {
     head: 'visor', shoulder: 'pad', back: 'pack', gun: 'rifle',
@@ -425,17 +545,28 @@ export function buildMech(P, shape = {}) {
 
   // --- 腰 ---
   const pelvis = new THREE.Group();
-  pelvis.position.y = 1.5;
+  pelvis.position.y = HIP_Y;
   root.add(pelvis);
-  pelvis.add(box(0.62, 0.3, 0.44, sh.legMain ? acc : main, 0, 0, 0));
-  pelvis.add(box(0.26, 0.34, 0.12, trim, 0, -0.02, 0.24));
-  pelvis.add(box(0.7, 0.16, 0.16, acc, 0, -0.14, -0.2));
-  for (const sx of [-1, 1]) pelvis.add(box(0.12, 0.36, 0.3, acc, sx * 0.36, -0.08, 0.02));   // サイドアーマー
+  if (PARTS) {
+    const pv = part('pelvis', P, sh, 'pelvis');
+    if (pv) pelvis.add(pv);
+  } else {
+    pelvis.add(box(0.62, 0.3, 0.44, sh.legMain ? acc : main, 0, 0, 0));
+    pelvis.add(box(0.26, 0.34, 0.12, trim, 0, -0.02, 0.24));
+    pelvis.add(box(0.7, 0.16, 0.16, acc, 0, -0.14, -0.2));
+    for (const sx of [-1, 1]) pelvis.add(box(0.12, 0.36, 0.3, acc, sx * 0.36, -0.08, 0.02));   // サイドアーマー
+  }
 
   // --- 胴 ---
   const torso = new THREE.Group();
   torso.position.y = 0.24;
   pelvis.add(torso);
+  if (PARTS) {
+    const ts = part('torso', P, sh, 'torso');
+    if (ts) torso.add(ts);
+    if (sh.chestDuct) { const d = part('torso_duct', P, sh, 'torso'); if (d) torso.add(d); }
+    if (sh.pipes) { const pp = part('torso_pipes', P, sh, 'torso'); if (pp) torso.add(pp); }
+  } else {
   torso.add(box(0.66, 0.28, 0.4, joint, 0, 0.02, 0));
   torso.add(box(0.78, 0.54, 0.44, mat('#2b303a', { kind: 'metal' }), 0, 0.38, 0));
   torso.add(box(0.86, 0.5, 0.5, sh.legMain ? main : acc, 0, 0.38, 0));
@@ -456,6 +587,7 @@ export function buildMech(P, shape = {}) {
       p.rotation.x = 0.4; torso.add(p);
     }
   }
+  }
 
   // --- バックパック / スラスター ---
   const thrusters = [];
@@ -465,7 +597,8 @@ export function buildMech(P, shape = {}) {
     transparent: true, opacity: 0.42, depthWrite: false,
     blending: THREE.AdditiveBlending, toneMapped: false,
   });
-  const pack = addBack(torso, P, sh.back, flameMat, thrusters);
+  const pack = PARTS ? addBackParts(torso, P, sh, flameMat, thrusters)
+                     : addBack(torso, P, sh.back, flameMat, thrusters);
 
   // 脚部スラスター
   for (const dx of [-0.22, 0.22]) {
@@ -481,7 +614,12 @@ export function buildMech(P, shape = {}) {
   const head = new THREE.Group();
   head.position.y = 0.72;
   torso.add(head);
-  addHead(head, P, sh.head);
+  if (PARTS) {
+    const hd = part('hd_' + sh.head, P, sh, 'head') || part('hd_visor', P, sh, 'head');
+    if (hd) head.add(hd);
+  } else {
+    addHead(head, P, sh.head);
+  }
 
   // --- 腕 / 脚 ---
   const armL = makeArm(P, 1, sh); armL.pivot.position.set(0.52, 0.42, 0); torso.add(armL.pivot);
@@ -491,20 +629,26 @@ export function buildMech(P, shape = {}) {
 
   // --- 銃 (右手) ---
   const gun = new THREE.Group();
-  gun.position.set(-0.05, -1.2, 0.05);
+  // Blender の腕は x=0 中心。手続き生成の腕は 0.05*s ずれているので位置も変える
+  gun.position.set(PARTS ? 0 : -0.05, -1.2, PARTS ? 0.03 : 0.05);
   armR.pivot.add(gun);
-  const reach = addGun(gun, P, sh.gun);
+  const reach = PARTS ? addGunPart(gun, P, sh) : addGun(gun, P, sh.gun);
   const muzzle = new THREE.Object3D();
   muzzle.position.set(0, 0, reach);
   gun.add(muzzle);
 
   // --- ビームサーベル (左手・格闘時のみ表示) ---
   const saber = new THREE.Group();
-  saber.position.set(0.05, -1.2, 0);
+  saber.position.set(PARTS ? 0 : 0.05, -1.2, 0);
   armL.pivot.add(saber);
-  const grip = cyl(0.06, 0.05, 0.3, mat('#c8ccd4', { metalness: 0.9, roughness: 0.2 }), 0, 0, 0.04);
-  grip.rotation.x = Math.PI / 2; saber.add(grip);
-  saber.add(cyl(0.075, 0.075, 0.05, mat(P.trim, { metalness: 0.7 }), 0, 0, 0.17));
+  if (PARTS) {
+    const gp = part('saber_grip', P, sh, 'gun');
+    if (gp) saber.add(gp);
+  } else {
+    const grip = cyl(0.06, 0.05, 0.3, mat('#c8ccd4', { metalness: 0.9, roughness: 0.2 }), 0, 0, 0.04);
+    grip.rotation.x = Math.PI / 2; saber.add(grip);
+    saber.add(cyl(0.075, 0.075, 0.05, mat(P.trim, { metalness: 0.7 }), 0, 0, 0.17));
+  }
   // 発光口
   const emitter = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), glowMaterial(P.beam, 0.9));
   emitter.position.set(0, 0, 0.2); saber.add(emitter);

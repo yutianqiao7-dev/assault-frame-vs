@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildMech } from './mechmodel.js';
+import { buildMech, HIP_Y } from './mechmodel.js';
 import { Trail } from './glow.js';
 import * as C from './config.js';
 
@@ -826,7 +826,7 @@ export class Mech {
     u.armL.rotation.z = lerp(u.armL.rotation.z, armLz, k);
     u.armR.rotation.z = lerp(u.armR.rotation.z, armRz, k);
     u.torso.rotation.x = lerp(u.torso.rotation.x, torsoX, k);
-    u.pelvis.position.y = lerp(u.pelvis.position.y, 1.5 + pelvY, k);
+    u.pelvis.position.y = lerp(u.pelvis.position.y, HIP_Y + pelvY, k);
 
     // 無敵中の点滅
     this.root.visible = this.invuln > 0 ? Math.sin(this.invuln * 34) > -0.25 : true;

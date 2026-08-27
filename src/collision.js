@@ -1,5 +1,5 @@
 // ビル（軸に沿った箱、必ず地面から生えている）との当たり判定。
-// AABB は { minX, maxX, minZ, maxZ, top } の形で arena.js から受け取る。
+// AABB は { minX, maxX, minZ, maxZ, top } の形で stages.js から受け取る。
 
 const EPS = 0.05;
 

@@ -2,3 +2,4 @@ node_modules
 dist
 _archive
 .shots
+__pycache__
