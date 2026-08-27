@@ -82,8 +82,13 @@ const world = {
   scene, fx, collision,
   projectiles: null,
   mechs: [],
-  spawnShot(owner, key) { world.projectiles.spawn(owner, key); },
+  // ゲストが自機を先読みしている間は true。
+  // 予測はあくまで見た目の話なので、弾を出したりダメージを与えたりはさせない
+  // （ホストから届く本物と二重になる）
+  predicting: false,
+  spawnShot(owner, key) { if (world.predicting) return; world.projectiles.spawn(owner, key); },
   hit(attacker, victim, dmg, down, dir, knock, kind) {
+    if (world.predicting) return;
     const d = victim.takeHit(attacker, dmg, down, dir, knock, kind);
     if (d > 0 && (victim === game.self || attacker === game.self)) chase.bump(kind === 'melee' ? 0.55 : 0.3);
   },
@@ -563,6 +568,7 @@ function showFinishBanner(text) {
 // ホストが両機をシミュレーションし、ゲストは自分の入力を送って結果を描画する。
 const net = new Net();
 const SNAPSHOT_HZ = 30;
+const INPUT_HZ = 30;
 
 // エッジ入力（格闘・ステップ等）は「押した回数」を送る。
 // 毎フレームの真偽値だと、送信とホストのフレームがズレたときに
@@ -579,16 +585,26 @@ let snapSeq = 0;
 let lastSnapshot = null;
 let guestReady = false;
 
-function netSendInput(inp) {
+// エッジ入力は「押した回数」で送るので、送信が毎フレームである必要はない。
+// 貯めるのは毎フレーム、送るのは 30Hz。取りこぼしは出ない。
+// 使い回しのオブジェクトに詰める（毎フレーム作ると GC が回る）
+const _inMsg = { t: 'in', x: 0, y: 0, j: 0, s: 0, e: [] };
+let inSendAcc = 0;
+
+function netAccumInput(inp) {
   for (const k of EDGE_KEYS) if (inp[k]) localCounts[k]++;
-  net.send({
-    t: 'in',
-    x: Math.round(inp.mx * 100) / 100,
-    y: Math.round(inp.my * 100) / 100,
-    j: inp.jump ? 1 : 0,
-    s: inp.shot ? 1 : 0,
-    e: EDGE_KEYS.map((k) => localCounts[k]),
-  });
+}
+
+function netSendInput(dt, inp) {
+  inSendAcc += dt;
+  if (inSendAcc < 1 / INPUT_HZ) return;
+  inSendAcc = 0;
+  _inMsg.x = Math.round(inp.mx * 100) / 100;
+  _inMsg.y = Math.round(inp.my * 100) / 100;
+  _inMsg.j = inp.jump ? 1 : 0;
+  _inMsg.s = inp.shot ? 1 : 0;
+  for (let i = 0; i < EDGE_KEYS.length; i++) _inMsg.e[i] = localCounts[EDGE_KEYS[i]];
+  net.sendRT(_inMsg);
 }
 
 // ホスト側: 届いた入力を 1 フレームぶんの入力に変換する
@@ -656,19 +672,34 @@ function netHostSend(dt) {
   if (netSendAcc < 1 / SNAPSHOT_HZ) return;
   netSendAcc = 0;
   if (!net.connected) return;
-  net.send(packSnapshot(game, world, ++snapSeq));
+  net.sendRT(packSnapshot(game, world, ++snapSeq));
 }
 
 // ゲスト側: シミュレーションはせず、受け取った状態を反映して描く
+// 自機を先読みしてよい状態か。よろけ・ダウン・撃墜中は操作が効かないので、
+// 予測しても外れるだけ。素直にホストの値に従う
+const PREDICTABLE = new Set(['free', 'step', 'land', 'fire', 'rush', 'swing']);
+const PREDICT_SNAP = 3.0;     // これ以上ずれたら補間せず即座に合わせる
+
 function netGuestTick(dt, inp) {
-  if (net.connected) netSendInput(inp);
+  if (net.connected) { netAccumInput(inp); netSendInput(dt, inp); }
+
+  const me = world.mechs[1];    // ゲストから見た自機
+  const predict = !!me && game.running && PREDICTABLE.has(me.st);
 
   const snap = lastSnapshot;
   if (snap) {
     lastSnapshot = null;
     // world.mechs[0] がホスト機、[1] がゲスト機。ゲストから見た自機は [1]
     applyMech(world.mechs[0], snap.m[0], 0.4);
-    applyMech(world.mechs[1], snap.m[1], 0.4);
+    // 自機は予測で動かしているので、位置は弱く引き戻すだけにする。
+    // 毎回 0.4 で引くと自分の操作と綱引きになってガタつく。
+    // ただし大きく離れたら見た目より正しさを優先して即合わせる
+    const a = snap.m[1];
+    const err = predict
+      ? Math.hypot(me.pos.x - a[0], me.pos.y - a[1], me.pos.z - a[2])
+      : 0;
+    applyMech(me, a, predict ? (err > PREDICT_SNAP ? 1 : 0.18) : 0.4);
     world.projectiles.syncShots(snap.p, world.mechs, C.WEAPON_ORDER);
     world.projectiles.syncBits(snap.b, world.mechs);
     world.projectiles.syncBeams(snap.l, world.mechs);
@@ -682,10 +713,21 @@ function netGuestTick(dt, inp) {
     }
   }
 
-  // スナップショットの間は速度で外挿して滑らかに見せる
+  // 自機だけはホストと同じコードでローカルに動かす（クライアント予測）。
+  // これが無いと自機が「入力 → ホスト → スナップショット」を待ってから
+  // 動き出すので、RTT ぶんまるごと操作が遅れて「重い」と感じる。
+  // 弾やダメージはホストが出す本物だけを使うので、予測中は捨てる
+  if (predict) {
+    world.predicting = true;
+    me.update(dt, inp);
+    world.predicting = false;
+  }
+
+  // 相手機（と予測できない状態の自機）は速度で外挿して滑らかに見せる
   for (const m of world.mechs) {
     if (m.st === 'dead') { m.root.visible = false; continue; }
     m.root.visible = true;
+    if (predict && m === me) continue;      // update() が位置も姿勢も進めている
     m.pos.addScaledVector(m.vel, dt);
     m.root.position.copy(m.pos);
     m.root.rotation.y = m.yaw;
@@ -853,9 +895,23 @@ $('joinBtn').addEventListener('click', () => {
   setTimeout(() => $('codeInput').focus(), 50);
 });
 
-$('codeInput').addEventListener('input', (e) => {
-  e.target.value = normalizeCode(e.target.value);
+// 部屋コード欄。日本語キーボードの英字フリックは IME の変換（composition）を通るので、
+// 変換中に value を書き換えると IME の内部状態が壊れて文字がだぶる。
+// 変換が確定するまで触らないこと。
+let codeComposing = false;
+$('codeInput').addEventListener('compositionstart', () => { codeComposing = true; });
+$('codeInput').addEventListener('compositionend', (e) => {
+  codeComposing = false;
+  normalizeCodeInput(e.target);
 });
+$('codeInput').addEventListener('input', (e) => {
+  if (codeComposing) return;
+  normalizeCodeInput(e.target);
+});
+function normalizeCodeInput(el) {
+  const v = normalizeCode(el.value);
+  if (v !== el.value) el.value = v;   // 変わらないときは書かない（カーソルが飛ぶ）
+}
 $('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('connectBtn').click(); });
 
 $('connectBtn').addEventListener('click', async () => {

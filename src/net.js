@@ -7,6 +7,7 @@ import Peer from 'peerjs';
 // 紛らわしい文字 (0/O, 1/I/L) を外した英数字
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const PREFIX = 'afvs-';          // 公開ブローカー上で他アプリと衝突しないように
+const RT_LABEL = 'afvs-rt';      // リアルタイム用（順序保証なし）のチャンネル名
 
 export function makeCode(n = 4) {
   let s = '';
@@ -21,7 +22,8 @@ export function normalizeCode(s) {
 export class Net {
   constructor() {
     this.peer = null;
-    this.conn = null;
+    this.conn = null;          // 制御用: 確実に届く（順序保証あり）
+    this.rt = null;            // リアルタイム用: 落ちてもよい（順序保証なし）
     this.role = null;          // 'host' | 'guest'
     this.code = '';
     this.state = 'idle';       // idle / opening / waiting / connecting / connected / closed / error
@@ -40,6 +42,7 @@ export class Net {
   }
 
   get connected() { return this.state === 'connected' && this.conn && this.conn.open; }
+  get rtReady() { return !!(this.rt && this.rt.open); }
 
   _newPeer(id) {
     return new Peer(id, { debug: 0 });
@@ -63,6 +66,7 @@ export class Net {
         resolve(code);
       });
       peer.on('connection', (conn) => {
+        if (conn.label === RT_LABEL) { this._bindRT(conn); return; }
         // 先着の1台だけ受け付ける
         if (this.conn) { conn.close(); return; }
         this._bind(conn);
@@ -105,6 +109,7 @@ export class Net {
           clearTimeout(timer);
           settled = true;
           this._bind(conn);
+          this._openRT(peer);
           resolve();
         });
       });
@@ -120,11 +125,7 @@ export class Net {
 
   _bind(conn) {
     this.conn = conn;
-    conn.on('data', (m) => {
-      if (m && m.t === 'ping') { this.send({ t: 'pong', a: m.a }); return; }
-      if (m && m.t === 'pong') { this.pingMs = Math.round(performance.now() - m.a); return; }
-      this.onMessage(m);
-    });
+    conn.on('data', (m) => this._onData(m));
     conn.on('close', () => { this.setState('closed'); this.conn = null; });
     conn.on('error', (e) => this.setState('error', describeError(e)));
     this.setState('connected');
@@ -134,15 +135,52 @@ export class Net {
     }, 1000);
   }
 
+  // 状態同期はリアルタイム用チャンネルで送る。
+  // 順序保証ありのチャンネルだと、1 パケット落ちただけで後続が全部待たされ
+  // (head-of-line blocking)、取り戻したときにまとめて届いてカクつく。
+  // 古いスナップショットは使い道が無いので、落ちてくれたほうがよい。
+  // まだ開いていなければ制御チャンネルに流す（繋がりはする）
+  _openRT(peer) {
+    try {
+      const rt = peer.connect(PREFIX + this.code, { reliable: false, label: RT_LABEL });
+      rt.on('open', () => { this.rt = rt; });
+      rt.on('close', () => { if (this.rt === rt) this.rt = null; });
+      rt.on('error', () => { if (this.rt === rt) this.rt = null; });
+      rt.on('data', (m) => this._onData(m));
+    } catch (e) { /* 張れなくても制御チャンネルで動く */ }
+  }
+
+  _bindRT(conn) {
+    conn.on('open', () => { this.rt = conn; });
+    conn.on('data', (m) => this._onData(m));
+    conn.on('close', () => { if (this.rt === conn) this.rt = null; });
+    conn.on('error', () => { if (this.rt === conn) this.rt = null; });
+    if (conn.open) this.rt = conn;
+  }
+
+  _onData(m) {
+    if (m && m.t === 'ping') { this.send({ t: 'pong', a: m.a }); return; }
+    if (m && m.t === 'pong') { this.pingMs = Math.round(performance.now() - m.a); return; }
+    this.onMessage(m);
+  }
+
   send(msg) {
     if (this.conn && this.conn.open) {
       try { this.conn.send(msg); } catch (e) { /* 送信失敗は次のフレームで取り返す */ }
     }
   }
 
+  sendRT(msg) {
+    const c = (this.rt && this.rt.open) ? this.rt : this.conn;
+    if (c && c.open) {
+      try { c.send(msg); } catch (e) { /* 落ちてよい種類のメッセージ */ }
+    }
+  }
+
   close() {
     clearInterval(this._pingTimer);
     this._pingTimer = null;
+    if (this.rt) { try { this.rt.close(); } catch (e) { /* already gone */ } this.rt = null; }
     if (this.conn) { try { this.conn.close(); } catch (e) { /* already gone */ } this.conn = null; }
     if (this.peer) { try { this.peer.destroy(); } catch (e) { /* already gone */ } this.peer = null; }
     this.role = null;
