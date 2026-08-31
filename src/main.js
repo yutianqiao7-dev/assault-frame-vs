@@ -3,6 +3,7 @@ import * as C from './config.js';
 import { buildStage, prefetchStage, STAGES, STAGE_ORDER, DEFAULT_STAGE } from './stages.js';
 import { Mech, EMPTY_INPUT } from './mech.js';
 import { loadMechParts } from './mechmodel.js';
+import { applyLocalMechs } from './mechlocal.js';
 import { Projectiles, FX } from './combat.js';
 import { ChaseCamera } from './camera.js';
 import { Input } from './input.js';
@@ -270,11 +271,17 @@ for (const b of document.querySelectorAll('#lvPick .lv')) {
 }
 
 // ---------- 機体選択 ----------
+// src/mechs.local.js があれば、その内容を機体データに被せる（開発サーバ限定）。
+// ピッカーを作る前に当てないと、名前や並び順が反映されない
+const localMechs = applyLocalMechs();
+if (localMechs.length) console.info('個人用の上書きを適用:', localMechs.join(', '));
+
 const MOVE_ROWS = [
   ['射撃', (m) => m.weapons.shot],
   ['サブ', (m) => m.weapons.sub],
   ['特射', (m) => m.weapons.sp_shot],
   ['特格', (m) => m.weapons.sp_melee],
+  ['覚醒技', (m) => m.weapons.awake],
 ];
 
 let selfId = localStorage.getItem('gvs.self') || 'brave';
@@ -952,7 +959,11 @@ $('againBtn').addEventListener('click', startBattle);
 
 // ---------- デバッグ (開発時のみ。本番ビルドでは丸ごと消える) ----------
 if (import.meta.env.DEV) {
+  const problems = C.validateMechs();
+  if (problems.length) console.error('機体設定の不備:', problems);
+
   window.__dbg = {
+    validate: () => C.validateMechs(),
     THREE, scene, camera, renderer, composer, bloom, game, world, hud, input, chase, net,
     step(dt = 1 / 60, n = 1) { for (let i = 0; i < n; i++) tick(dt); renderFrame(); },
     sim(n, dt = 1 / 60, onFrame) { for (let i = 0; i < n; i++) { if (onFrame) onFrame(i); tick(dt); } },

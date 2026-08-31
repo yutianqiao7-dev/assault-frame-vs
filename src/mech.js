@@ -65,6 +65,7 @@ export class Mech {
     this.awake = 0;            // 0-100
     this.awakeT = 0;           // 残り秒
     this.awakeReady = false;
+    this.awakeUsed = true;     // 覚醒技を撃ったか。覚醒していない間は撃てない
 
     // 武装
     this.ammo = {};
@@ -159,7 +160,7 @@ export class Mech {
     if (this.awakeT > 0) {
       this.awakeT -= dt;
       this.awake = Math.max(0, (this.awakeT / C.AWAKE_DURATION) * 100);
-      if (this.awakeT <= 0) { this.awake = 0; this.awakeReady = false; }
+      if (this.awakeT <= 0) { this.awake = 0; this.awakeReady = false; this.awakeUsed = true; }
     } else if (this.awake >= 100) this.awakeReady = true;
 
     if (this.st === 'dead') {
@@ -209,12 +210,16 @@ export class Mech {
       this.awakeT = C.AWAKE_DURATION;
       this.awake = 100;
       this.awakeReady = false;
+      this.awakeUsed = !this.d.weapons.awake;   // 覚醒技を持つ機体だけ1回撃てる
       this.boost = C.BOOST_MAX;
       this.overheat = false;
       this.setState('free');
       this.invuln = Math.max(this.invuln, 0.4);
       this.world.fx.burst(this.pos, this.d.palette.beam);
       this.world.msg('BURST!');
+    } else if (inp.awake && this.awakeT > 0 && !this.awakeUsed) {
+      // --- 覚醒技: 覚醒中にもう一度押す。1回の覚醒につき1発 ---
+      if (this.tryAwakeAtk()) return;
     }
 
     // --- ダウン / 起き上がり ---
@@ -397,6 +402,36 @@ export class Mech {
     return true;
   }
 
+  // 覚醒技。弾数もクールタイムも持たず、覚醒1回につき1発だけ。
+  // 射撃型と突撃型のどちらも既存の経路に乗せる
+  tryAwakeAtk() {
+    const w = this.d.weapons.awake;
+    if (!w || this.awakeT <= 0 || this.awakeUsed) return false;
+    if (this.st === 'down' || this.st === 'wake' || this.st === 'dead') return false;
+
+    if (w.kind === 'melee_special') {
+      if (!this.target || !this.target.alive) return false;
+      this.awakeUsed = true;
+      this.meleeKey = 'awake';
+      this.meleeVar = null;
+      this.meleeStage = -1;
+      this.setState('rush', w.rushTime);
+      this.root.userData.saber.visible = true;
+    } else {
+      this.awakeUsed = true;
+      const hold = w.kind === 'laser' ? w.duration : 0;
+      this.setState('fire', w.fireDelay + hold + 0.45);
+      this.fireKey = 'awake';
+      this.fireT = w.fireDelay;
+      this.grounded = this.grounded && this.vel.y <= 0;
+    }
+    // 覚醒技の出だしは無敵。撃ち合いの最中に出しても潰されない
+    this.invuln = Math.max(this.invuln, 0.5);
+    this.world.fx.burst(this.pos, this.d.palette.beam);
+    this.world.msg(w.name || 'AWAKE ATTACK');
+    return true;
+  }
+
   trySpMelee() {
     const w = this.d.weapons.sp_melee;
     if (!w || this.ammo.sp_melee <= 0 || this.cool.sp_melee > 0) return false;
@@ -460,8 +495,8 @@ export class Mech {
   updateRush(dt) {
     if (!this.drainMeleeBoost(dt)) { this.endMelee(); return; }
     const t = this.target;
-    const isSp = this.meleeKey === 'sp_melee';
-    const conf = isSp ? this.d.weapons.sp_melee : (this.meleeVar || this.d.melee.n);
+    const isSp = this.meleeKey === 'sp_melee' || this.meleeKey === 'awake';
+    const conf = isSp ? this.d.weapons[this.meleeKey] : (this.meleeVar || this.d.melee.n);
     const hitR = isSp ? 4.6 : this.d.melee.hitRadius;
     if (!t || !t.alive) { this.endMelee(); return; }
 
@@ -497,9 +532,10 @@ export class Mech {
   }
 
   startSwing() {
-    const isSp = this.meleeKey === 'sp_melee';
+    const isSp = this.meleeKey === 'sp_melee' || this.meleeKey === 'awake';
+    const spw = isSp ? this.d.weapons[this.meleeKey] : null;
     const stage = isSp
-      ? { dmg: this.d.weapons.sp_melee.dmg, down: this.d.weapons.sp_melee.down, dur: 0.75, knock: 22, pull: false }
+      ? { dmg: spw.dmg, down: spw.down, dur: spw.swingDur || 0.75, knock: 22, pull: false }
       : (this.meleeVar || this.d.melee.n).stages[this.meleeStage];
     this.setState('swing', stage.dur);
     this.swingStage = stage;

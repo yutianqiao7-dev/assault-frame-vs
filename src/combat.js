@@ -268,7 +268,10 @@ export class Projectiles {
     const b = {
       grp, core, glow, owner, w, color,
       dir: _d.clone(),
-      life: w.duration,
+      // duration が無いと life が NaN になり、NaN <= 0 が false なので
+      // ビームが永久に消えなくなる。設定ミスで不死身の物を作らせない
+      life: Number.isFinite(w.duration) ? w.duration : 1.2,
+      dur: Number.isFinite(w.duration) ? w.duration : 1.2,
       tick: 0,
       hitOnce: new Set(),
     };
@@ -466,7 +469,7 @@ export class Projectiles {
         : w.range;
 
       // 見た目: 長さ reach、太さは撃ち始めに膨らんでから絞る
-      const p = 1 - b.life / w.duration;
+      const p = 1 - b.life / b.dur;
       const flare = p < 0.12 ? p / 0.12 : (b.life < 0.18 ? b.life / 0.18 : 1);
       const rad = (w.radius || 1.4) * (0.55 + flare * 0.45);
       b.core.scale.set(rad * 0.45, rad * 0.45, reach);
@@ -489,7 +492,7 @@ export class Projectiles {
         }
       }
 
-      if (b.life <= 0) {
+      if (!(b.life > 0)) {          // NaN もここで確実に落とす
         this.world.scene.remove(b.grp);
         b.core.material.dispose(); b.glow.material.dispose();
         this.beams.splice(i, 1);

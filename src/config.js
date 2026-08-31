@@ -75,6 +75,9 @@ export const MECHS = {
       sp_melee: { label:'PL', name:'プラズマランス', kind:'melee_special',
                   ammo:1, reload:9.0, dmg:130, down:5.0,
                   cooldown:1.4, rushSpeed:52, rushRange:46, rushTime:0.9 },
+      awake:    { label:'AW', name:'ハイパーランス', kind:'laser',
+                  dmg:34, down:0.5, cooldown:0, fireDelay:0.34, duration:1.8, tickGap:0.1,
+                  range:150, radius:2.2, turn:1.6 },
     },
     melee: {
       range: 38, hitRadius: 4.6,
@@ -115,6 +118,9 @@ export const MECHS = {
       sp_melee: { label:'SH', name:'シールドバッシュ', kind:'melee_special',
                   ammo:1, reload:8.5, dmg:105, down:5.0,
                   cooldown:1.3, rushSpeed:48, rushRange:38, rushTime:0.85 },
+      awake:    { label:'AW', name:'全門斉射', kind:'spread',
+                  dmg:40, down:0.6, cooldown:0, fireDelay:0.26, speed:155, life:1.5,
+                  homing:0.95, radius:0.42, count:12, spreadAngle:0.26 },
     },
     melee: {
       range: 34, hitRadius: 4.6,
@@ -150,6 +156,9 @@ export const MECHS = {
       sp_melee: { label:'TK', name:'タックル', kind:'melee_special',
                   ammo:1, reload:8.0, dmg:100, down:5.0,
                   cooldown:1.3, rushSpeed:50, rushRange:42, rushTime:0.85 },
+      awake:    { label:'AW', name:'一斉射撃', kind:'missile',
+                  dmg:34, down:0.7, cooldown:0, fireDelay:0.22, speed:104, life:2.6,
+                  homing:2.0, radius:0.44, splash:5, count:10, launchGap:0.06, arc:0.32 },
     },
     melee: {
       range: 36, hitRadius: 4.6,
@@ -187,6 +196,8 @@ export const MECHS = {
       sp_melee: { label:'BL', name:'瞬間突撃', kind:'melee_special',
                   ammo:2, reload:7.5, dmg:120, down:5.0,
                   cooldown:1.1, rushSpeed:72, rushRange:62, rushTime:1.1 },
+      awake:    { label:'AW', name:'零距離乱舞', kind:'melee_special',
+                  dmg:225, down:5.0, cooldown:0, rushSpeed:92, rushRange:999, rushTime:1.4, swingDur:0.95 },
     },
     melee: {
       range: 46, hitRadius: 4.8,
@@ -228,6 +239,9 @@ export const MECHS = {
       sp_melee: { label:'AK', name:'アンカー', kind:'melee_special',
                   ammo:1, reload:9.0, dmg:110, down:5.0,
                   cooldown:1.5, rushSpeed:44, rushRange:40, rushTime:0.9 },
+      awake:    { label:'AW', name:'全砲門斉射', kind:'shell',
+                  dmg:78, down:2.0, cooldown:0, fireDelay:0.3, speed:96, life:2.8,
+                  homing:0.6, radius:1.0, splash:11, arc:0.24, burst:6, burstGap:0.1 },
     },
     melee: {
       range: 32, hitRadius: 4.8,
@@ -263,6 +277,9 @@ export const MECHS = {
       sp_melee: { label:'HD', name:'高速突撃', kind:'melee_special',
                   ammo:1, reload:8.0, dmg:135, down:5.0,
                   cooldown:1.3, rushSpeed:64, rushRange:56, rushTime:1.0 },
+      awake:    { label:'AW', name:'全基展開', kind:'funnel',
+                  dmg:30, down:0.8, cooldown:0, fireDelay:0.24, speed:165, life:1.1,
+                  homing:0.95, radius:0.4, count:6, bitTime:2.6, bitOrbit:20, bitFireGap:0.8 },
     },
     melee: {
       range: 40, hitRadius: 4.6,
@@ -303,6 +320,9 @@ export const MECHS = {
       sp_melee: { label:'DS', name:'ダッシュスラスト', kind:'melee_special',
                   ammo:2, reload:6.5, dmg:88, down:5.0,
                   cooldown:1.0, rushSpeed:74, rushRange:52, rushTime:0.95 },
+      awake:    { label:'AW', name:'フルバーストミサイル', kind:'missile',
+                  dmg:30, down:0.6, cooldown:0, fireDelay:0.2, speed:100, life:2.6,
+                  homing:2.1, radius:0.42, splash:5, count:12, launchGap:0.05, arc:0.3 },
     },
     melee: {
       range: 36, hitRadius: 4.4,
@@ -340,6 +360,8 @@ export const MECHS = {
       sp_melee: { label:'PS', name:'ピアススラスト', kind:'melee_special',
                   ammo:2, reload:6.5, dmg:105, down:5.0,
                   cooldown:1.0, rushSpeed:78, rushRange:58, rushTime:1.05 },
+      awake:    { label:'AW', name:'連刃突撃', kind:'melee_special',
+                  dmg:190, down:5.0, cooldown:0, rushSpeed:96, rushRange:999, rushTime:1.4, swingDur:0.9 },
     },
     melee: {
       range: 44, hitRadius: 4.4,
@@ -380,6 +402,9 @@ export const MECHS = {
       sp_melee: { label:'SW', name:'ソードスロー', kind:'melee_special',
                   ammo:1, reload:8.0, dmg:112, down:5.0,
                   cooldown:1.25, rushSpeed:56, rushRange:46, rushTime:0.9 },
+      awake:    { label:'AW', name:'極大貫通ビーム', kind:'beam', pierce: true,
+                  dmg:150, down:4.0, cooldown:0, fireDelay:0.3, speed:210, life:2.0,
+                  homing:0.8, radius:1.1 },
     },
     melee: {
       range: 38, hitRadius: 4.6,
@@ -418,6 +443,8 @@ export const MECHS = {
       sp_melee: { label:'GC', name:'両断', kind:'melee_special',
                   ammo:1, reload:8.5, dmg:145, down:5.0,
                   cooldown:1.4, rushSpeed:58, rushRange:48, rushTime:0.95 },
+      awake:    { label:'AW', name:'大回転斬', kind:'melee_special',
+                  dmg:240, down:5.0, cooldown:0, rushSpeed:82, rushRange:999, rushTime:1.5, swingDur:1.0 },
     },
     melee: {
       range: 40, hitRadius: 4.8,
@@ -455,6 +482,9 @@ export const MECHS = {
       sp_melee: { label:'CR', name:'圧殺', kind:'melee_special',
                   ammo:1, reload:9.0, dmg:118, down:5.0,
                   cooldown:1.5, rushSpeed:42, rushRange:36, rushTime:0.85 },
+      awake:    { label:'AW', name:'全弾発射', kind:'missile',
+                  dmg:38, down:0.7, cooldown:0, fireDelay:0.26, speed:96, life:3.0,
+                  homing:1.9, radius:0.5, splash:6, count:14, launchGap:0.05, arc:0.36 },
     },
     melee: {
       range: 30, hitRadius: 5.0,
@@ -491,6 +521,9 @@ export const MECHS = {
       sp_melee: { label:'RD', name:'急速接近', kind:'melee_special',
                   ammo:1, reload:7.5, dmg:128, down:5.0,
                   cooldown:1.25, rushSpeed:68, rushRange:58, rushTime:1.0 },
+      awake:    { label:'AW', name:'全周制圧', kind:'funnel',
+                  dmg:30, down:0.8, cooldown:0, fireDelay:0.24, speed:170, life:1.1,
+                  homing:0.95, radius:0.4, count:7, bitTime:2.6, bitOrbit:22, bitFireGap:0.8 },
     },
     melee: {
       range: 40, hitRadius: 4.6,
@@ -531,6 +564,8 @@ export const MECHS = {
       sp_melee: { label:'DF', name:'ダブルファング', kind:'melee_special',
                   ammo:2, reload:8.0, dmg:112, down:5.0,
                   cooldown:1.2, rushSpeed:70, rushRange:58, rushTime:1.0 },
+      awake:    { label:'AW', name:'牙裂', kind:'melee_special',
+                  dmg:215, down:5.0, cooldown:0, rushSpeed:108, rushRange:999, rushTime:1.5, swingDur:0.95 },
     },
     melee: {
       range: 44, hitRadius: 4.8,
@@ -570,6 +605,9 @@ export const MECHS = {
       sp_melee: { label:'RM', name:'ラムアタック', kind:'melee_special',
                   ammo:1, reload:9.5, dmg:104, down:5.0,
                   cooldown:1.5, rushSpeed:44, rushRange:34, rushTime:0.85 },
+      awake:    { label:'AW', name:'制圧散弾', kind:'spread',
+                  dmg:34, down:0.5, cooldown:0, fireDelay:0.24, speed:130, life:1.1,
+                  homing:0.6, radius:0.4, count:14, spreadAngle:0.34 },
     },
     melee: {
       range: 32, hitRadius: 5.0,
@@ -609,6 +647,10 @@ export const MECHS = {
       sp_melee: { label:'CH', name:'チェーンソー', kind:'melee_special',
                   ammo:1, reload:9.0, dmg:118, down:5.0,
                   cooldown:1.35, rushSpeed:50, rushRange:42, rushTime:0.9 },
+      awake:    { label:'AW', name:'全周散布', kind:'mine',
+                  dmg:74, down:2.0, cooldown:0, fireDelay:0.26, speed:40, life:12,
+                  homing:0, radius:0.5, splash:10, arc:0.4, armTime:0.35, trigger:9,
+                  dropAt:0.95, scatter:15, count:8, launchGap:0.06 },
     },
     melee: {
       range: 36, hitRadius: 4.6,
@@ -640,14 +682,17 @@ export const MECHS = {
                   ammo:6, reload:4.2, dmg:84, down:2.4, speed:230, life:2.2,
                   cooldown:0.88, fireDelay:0.24, homing:0.75, radius:0.4 },
       sub:      { label:'PC', name:'パルスキャノン', kind:'laser',
-                  ammo:1, reload:7.5, dmg:34, down:0.5, life:1.1,
-                  cooldown:1.35, fireDelay:0.3, range:120, radius:1.5, tick:0.1 },
+                  ammo:1, reload:7.5, dmg:34, down:0.5, duration:1.1, tickGap:0.1,
+                  cooldown:1.35, fireDelay:0.3, range:120, radius:1.5, turn:1.4 },
       sp_shot:  { label:'SG', name:'狙撃グレネード', kind:'shell',
                   ammo:2, reload:7.5, dmg:88, down:3.0, speed:92, life:2.6,
                   cooldown:1.05, fireDelay:0.3, homing:0.55, radius:0.85, splash:7, arc:0.2 },
       sp_melee: { label:'BL', name:'ブレイクランス', kind:'melee_special',
                   ammo:1, reload:9.5, dmg:124, down:5.0,
                   cooldown:1.4, rushSpeed:56, rushRange:50, rushTime:0.95 },
+      awake:    { label:'AW', name:'長時間照射', kind:'laser',
+                  dmg:36, down:0.5, cooldown:0, fireDelay:0.36, duration:2.2, tickGap:0.1,
+                  range:170, radius:2.0, turn:1.2 },
     },
     melee: {
       range: 36, hitRadius: 4.6,
@@ -687,6 +732,9 @@ export const MECHS = {
       sp_melee: { label:'FD', name:'フォールダウン', kind:'melee_special',
                   ammo:2, reload:8.5, dmg:126, down:5.0,
                   cooldown:1.3, rushSpeed:74, rushRange:62, rushTime:1.05 },
+      awake:    { label:'AW', name:'降下爆撃', kind:'missile',
+                  dmg:40, down:0.8, cooldown:0, fireDelay:0.24, speed:112, life:2.8,
+                  homing:2.2, radius:0.46, splash:6, count:12, launchGap:0.05, arc:0.44 },
     },
     melee: {
       range: 42, hitRadius: 4.8,
@@ -718,11 +766,13 @@ export const MECHS = {
                   ammo:3, reload:5.5, dmg:62, down:1.4, speed:118, life:3.0,
                   cooldown:0.85, fireDelay:0.16, homing:0.85, radius:0.55, turnAt:0.62 },
       sp_shot:  { label:'RB', name:'ロングビーム', kind:'laser',
-                  ammo:1, reload:8.0, dmg:30, down:0.45, life:1.3,
-                  cooldown:1.4, fireDelay:0.28, range:104, radius:1.7, tick:0.1 },
+                  ammo:1, reload:8.0, dmg:30, down:0.45, duration:1.3, tickGap:0.1,
+                  cooldown:1.4, fireDelay:0.28, range:104, radius:1.7, turn:1.3 },
       sp_melee: { label:'RS', name:'ロイヤルスラッシュ', kind:'melee_special',
                   ammo:2, reload:8.0, dmg:140, down:5.0,
                   cooldown:1.25, rushSpeed:66, rushRange:56, rushTime:1.0 },
+      awake:    { label:'AW', name:'王剣一閃', kind:'melee_special',
+                  dmg:255, down:5.0, cooldown:0, rushSpeed:88, rushRange:999, rushTime:1.5, swingDur:1.0 },
     },
     melee: {
       range: 47, hitRadius: 5.0,
@@ -749,3 +799,50 @@ export const MECH_ORDER = [
   'nox', 'grave', 'tempest', 'titan', 'lance',
   'vulca', 'seraph', 'garuda', 'sovereign',
 ];
+
+// 武装の設定を検証する。kind ごとに「無いと壊れるキー」を持っているか見る。
+// laser の duration を書き忘れると life が NaN になり、NaN <= 0 が false なので
+// ビームが永久に消えない — この手の取り違えは黙って通ると発見が遅れる。
+// 開発時に main.js から呼ぶ（本番ビルドからは消える）。
+const REQUIRED = {
+  beam:   ['speed', 'life', 'radius'],
+  bullet: ['speed', 'life', 'radius'],
+  shell:  ['speed', 'life', 'radius'],
+  spread: ['speed', 'life', 'radius', 'count'],
+  missile:['speed', 'life', 'radius', 'count'],
+  boomerang: ['speed', 'life', 'radius'],
+  mine:   ['speed', 'life', 'radius', 'splash'],
+  laser:  ['duration', 'range', 'radius'],
+  funnel: ['speed', 'life', 'radius', 'count', 'bitTime'],
+  melee_special: ['rushSpeed', 'rushRange', 'rushTime'],
+};
+const COMMON = ['dmg', 'down', 'cooldown'];
+
+export function validateMechs() {
+  const problems = [];
+  for (const id of MECH_ORDER) {
+    const m = MECHS[id];
+    if (!m) { problems.push(`${id}: MECHS に無い`); continue; }
+    for (const slot of [...WEAPON_ORDER, 'awake']) {
+      const w = m.weapons[slot];
+      if (!w) continue;
+      const need = REQUIRED[w.kind];
+      if (!need) { problems.push(`${id}.${slot}: 未知の kind '${w.kind}'`); continue; }
+      for (const k of [...COMMON, ...need]) {
+        if (!Number.isFinite(w[k])) problems.push(`${id}.${slot} (${w.kind}): ${k} が無い/数値でない`);
+      }
+      // 使われないキーは書き間違いの可能性が高い
+      for (const k of Object.keys(w)) {
+        if (k === 'life' && w.kind === 'laser') problems.push(`${id}.${slot}: laser に life は無効（duration のこと？）`);
+        if (k === 'tick') problems.push(`${id}.${slot}: tick は無効（tickGap のこと？）`);
+        if (k === 'duration' && w.kind !== 'laser') problems.push(`${id}.${slot}: ${w.kind} に duration は無効`);
+      }
+    }
+    for (const dk of MELEE_DIRS) {
+      const v = m.melee[dk];
+      if (!v) continue;
+      if (!v.stages || !v.stages.length) problems.push(`${id}.melee.${dk}: stages が空`);
+    }
+  }
+  return problems;
+}

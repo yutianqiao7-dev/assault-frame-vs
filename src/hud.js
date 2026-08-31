@@ -96,6 +96,11 @@ export class HUD {
     // 覚醒
     e.awakeBar.style.transform = `scaleX(${self.awake / 100})`;
     e.awakeWrap.classList.toggle('full', self.awakeReady && self.awakeT <= 0);
+    // 覚醒中に覚醒技がまだ残っているか。押せる物が残っているのは見えていないと困る
+    const atkReady = self.awakeT > 0 && !self.awakeUsed;
+    e.awakeWrap.classList.toggle('atk', atkReady);
+    const label = e.awakeWrap.querySelector('span');
+    if (label) label.textContent = atkReady ? '覚醒技' : 'AWAKE';
 
     // 弾数
     for (const k of WEAPON_ORDER) {

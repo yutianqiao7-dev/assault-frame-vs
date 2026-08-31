@@ -75,6 +75,7 @@ npm run dev
 - **よろけの蓄積**：射撃はダウン値が 1.0 たまるごとによろける。マシンガンのような軽い弾は毎発のけぞらせない（格闘は常によろける）。
 - **コンボ補正**：ヒット数に応じて 1.0 → 0.85 → 0.74 …（`COMBO_SCALE`）
 - **覚醒**：与ダメ・被ダメでゲージが溜まる。発動でブースト全回復＋移動 1.22 倍・与ダメ 1.13 倍を 9 秒。
+- **覚醒技**：覚醒中に**もう一度 覚醒ボタンを押す**と出る、機体ごとの大技。1回の覚醒につき1発だけ。弾数もクールタイムも持たない。出だしに 0.5 秒の無敵が付くので、撃ち合いの最中に割り込める。射撃型（照射・全弾発射・全門斉射…）と突撃型（乱舞・一閃…）があり、**どれも 166〜290 ダメージ**に収まるよう揃えてある（耐久 440〜800 に対して 1/4〜1/2 ほど）。覚醒ゲージが青く光っている間が撃てる合図。
 - **戦力ゲージ（コスト）**：両陣営 6000。撃墜されると機体コスト（2000）を引かれる。0 で敗北。
 - **CPU**：EASY / NORMAL / HARD。距離取り・横移動・被弾回避のステップ・格闘・覚醒。難易度で反応速度と**射撃精度**（`aimError`）が変わる。
 
@@ -128,8 +129,11 @@ npm run dev
 | `laser` | 照射ビーム。`duration` 秒のあいだ判定が出続け、`tickGap` ごとにダメージ。撃っている間は動けずキャンセルもできない |
 | `funnel` | オールレンジ攻撃。`count` 基のビットが敵の周囲を回りながら撃つ |
 | `boomerang` | 投げて戻ってくる。`turnAt` 秒で折り返し、往路と復路の両方に判定が出る |
+| `melee_special` | 突撃してから斬る。`rushSpeed` で寄り、`rushRange` の内側でだけ出せる（覚醒技版は距離制限なし） |
 | `mine` | 設置地雷。地面や壁に貼り付き、`armTime` 後に `trigger` の距離へ敵が入ると `splash` で爆発。`life` 秒で不発のまま消える。相手の足元ではなく `dropAt` の割合だけ手前に落ちる（足元に落ちると即起爆してただの遅いグレネードになる）。`count` 個まくと落点も横位置もばらける |
 | `pierce`（フラグ）| 命中しても消えない貫通弾。同じ相手には1回だけ当たる |
+
+**設定ミスを黙って通さない**: `validateMechs()`（`src/config.js`）が kind ごとに必要なキーを検査する。開発サーバ起動時に自動で走り、不備があればコンソールに出る。`laser` に `duration` を書き忘れると `life` が `NaN` になり、`NaN <= 0` が false なので**ビームが永久に消えない** — 実際にこれを踏んだので、同じ取り違え（`life`/`tick` と `duration`/`tickGap`）を名指しで検出するようにしてある。
 
 ### 格闘の派生
 
@@ -208,13 +212,15 @@ src/
   camera.js     ロックオンカメラ
   input.js      キーボード + バーチャルスティック
   hud.js        HUD の DOM 更新
-  stages.js     ステージ（市街=手続き生成 / コロニー=GLB）とライティング
+  stages.js     ステージ（市街=手続き生成 / その他=GLB）とライティング
+  mechlocal.js  src/mechs.local.js があれば機体データに被せる（開発時のみ）
   glow.js       発光体（ビーム/グロー/軌跡）の共通パーツ
   collision.js  ビル(AABB)との当たり判定・射線判定
   net.js        WebRTC の接続（部屋コードの発行と参加）
   netsync.js    状態のパック／アンパック
   style.css     HUD とタッチ UI
 tools/
+  mechs.local.example.js 個人用の機体上書きの雛形（src/mechs.local.js にコピーして使う）
   stagekit.py            ステージ生成の共通部品（形状・配置・書き出し・検算）
   blender_mech_parts.py  機体パーツの生成 → public/models/mechparts.glb
   blender_colony.py      コロニー → colony.glb + colony_boxes.json
@@ -226,6 +232,19 @@ public/
 ```
 
 チューニングはほぼ全部 `src/config.js` に集約してある。
+
+### 個人用の機体上書き
+
+`src/mechs.local.js` を置くと、名前・説明・配色・形・武装・数値を好きに差し替えられる。既存機体への部分上書きも、`base` を指定した新機体の追加もできる。雛形は `tools/mechs.local.example.js`。
+
+```bash
+cp tools/mechs.local.example.js src/mechs.local.js
+npm run dev
+```
+
+**この仕組みは開発サーバでしか動かない。** 本番ビルドには一切入らないので、公開している GitHub Pages 側は元のまま。`src/mechs.local.js` は `.gitignore` に入れてあるのでコミットもされない。
+
+スマホで遊ぶときは、PC で `npm run dev` を立ち上げて同じ Wi-Fi から `http://<PCのIPアドレス>:5174` を開く（`vite.config.js` の `server.host` が `true`）。
 
 ### デプロイ
 
