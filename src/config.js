@@ -670,7 +670,7 @@ export const MECHS = {
   // ==================== 2500: 追加 ====================
   lance: {
     id: 'lance', name: 'ランス', cost: 2500, hp: 620,
-    role: '狙撃', desc: '長射程の貫通弾。誘導が弱いので当てるのは自分の腕',
+    role: '狙撃', desc: '長射程の貫通弾。一発が重いが、誘導は他より弱く撃つ間隔も遅い',
     palette: { main:'#33465e', accent:'#c9d3e0', trim:'#4ad0c0', joint:'#7d8794', eye:'#7dffe8', beam:'#6ff0d8', flame:'#a8f5ea' },
     shape: { head:'twin', shoulder:'shield', back:'cannon', gun:'bow', forearmFin:false },
     walk: 11, bdSpeed: 26, bdDrain: 24, stepSpeed: 30, stepCost: 17, stepDur: 0.36,
