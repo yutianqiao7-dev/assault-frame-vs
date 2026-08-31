@@ -4,8 +4,10 @@ import Peer from 'peerjs';
 // WebRTC の DataChannel で 2 台が直接やり取りする。
 // ブローカーは接続確立までしか関与しないので、繋がったあとは第三者を通らない。
 
-// 紛らわしい文字 (0/O, 1/I/L) を外した英数字
-const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+// 数字だけ。スマホでテンキーが出るので、英字フリック（IME の変換）を通らない。
+// 10^4 = 10000 通りしかないが、同時に立っている部屋はごく少数だし、
+// 重複したら host() が別のコードで取り直す
+const CODE_CHARS = '0123456789';
 const PREFIX = 'afvs-';          // 公開ブローカー上で他アプリと衝突しないように
 const RT_LABEL = 'afvs-rt';      // リアルタイム用（順序保証なし）のチャンネル名
 
@@ -16,7 +18,11 @@ export function makeCode(n = 4) {
 }
 
 export function normalizeCode(s) {
-  return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  // 全角数字も受ける（日本語キーボードだと混ざりやすい）
+  return (s || '')
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/\D/g, '')
+    .slice(0, 4);
 }
 
 export class Net {

@@ -902,9 +902,10 @@ $('joinBtn').addEventListener('click', () => {
   setTimeout(() => $('codeInput').focus(), 50);
 });
 
-// 部屋コード欄。日本語キーボードの英字フリックは IME の変換（composition）を通るので、
-// 変換中に value を書き換えると IME の内部状態が壊れて文字がだぶる。
-// 変換が確定するまで触らないこと。
+// 部屋コード欄。数字4桁なので inputmode="numeric" でテンキーが出て、
+// ふつうは IME の変換を通らない。ただしキーボードによっては通るので、
+// 変換中に value を書き換えて IME の内部状態を壊さないよう保険を残してある
+// （変換中に触ると文字がだぶる）。
 let codeComposing = false;
 $('codeInput').addEventListener('compositionstart', () => { codeComposing = true; });
 $('codeInput').addEventListener('compositionend', (e) => {
@@ -923,7 +924,7 @@ $('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('co
 
 $('connectBtn').addEventListener('click', async () => {
   const code = normalizeCode($('codeInput').value);
-  if (code.length < 4) { netStatusText('netJoinStatus', '4文字のコードを入れてください', true); return; }
+  if (code.length < 4) { netStatusText('netJoinStatus', '4桁の数字を入れてください', true); return; }
   netStatusText('netJoinStatus', '接続中…');
   try {
     await net.join(code);
