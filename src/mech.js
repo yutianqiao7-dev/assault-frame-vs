@@ -392,10 +392,14 @@ export class Mech {
     const cost = w.kind === 'funnel' ? (w.count || 1) : 1;
     if (this.ammo[key] < cost || this.cool[key] > 0) return false;
     this.ammo[key] -= cost;
-    this.cool[key] = w.cooldown;
+    // 連射(burst)を撃ち終わる前に次を撃たせない。
+    // cooldown が連射の所要時間より短いと、前の連射が続いているうちに
+    // 次が始まって弾が重なり、設定値の何倍もの手数になる
+    const burstTime = ((w.burst || 1) - 1) * (w.burstGap || 0.09);
+    this.cool[key] = Math.max(w.cooldown, burstTime + 0.03);
     // 照射ビームは発射中ずっと動けない
     const hold = w.kind === 'laser' ? w.duration : 0;
-    this.setState('fire', w.fireDelay + hold + w.cooldown * 0.85);
+    this.setState('fire', w.fireDelay + hold + this.cool[key] * 0.85);
     this.fireKey = key;
     this.fireT = w.fireDelay;
     this.grounded = this.grounded && this.vel.y <= 0;
