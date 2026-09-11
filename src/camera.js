@@ -6,8 +6,6 @@ const _look = new THREE.Vector3();
 const _pivot = new THREE.Vector3();
 const _ray = new THREE.Vector3();
 const _caster = new THREE.Raycaster();
-const _side = new THREE.Vector3();
-
 
 // VSシリーズ風ロックオンカメラ: 自機の後方から、自機と敵の両方が映る位置へ。
 export class ChaseCamera {
@@ -19,10 +17,6 @@ export class ChaseCamera {
     this.portrait = false;
     // 開幕の引き。1 で大きく引いて高く、0 で通常。main.js がスタンバイ中に減らす
     this.intro = 0;
-    // 格闘の寄り。1 で横から見る形、0 で通常の真後ろ
-    this.melee = 0;
-    this.meleeSide = 1;
-    this._sidePicked = false;
   }
 
   bump(v = 1) { this.shake = Math.min(1.4, this.shake + v); }
@@ -74,51 +68,13 @@ export class ChaseCamera {
     this.cam.lookAt(this.look);
   }
 
-  endFocus() {
-    this._focusAng = undefined;
-    // 撃墜演出の間は update を通らないので、格闘の寄りが凍ったまま残る
-    this.melee = 0;
-    this._sidePicked = false;
-  }
-
-  // 格闘中のカメラ位置。2 機の中点を軸に、結ぶ線の横から捉える。
-  // 自機を軸に回すだけでは足りない: 接触時の間合いは 5 程度しかないので、
-  // 自機の後ろから 35 度ずらしても敵との角度差は 11 度にしかならず、
-  // 機体の幅のほうが大きいので結局重なって見える
-  _meleePos(out, sp, tp, side, dist) {
-    const px = _dir.z * side, pz = -_dir.x * side;
-    // 横 0.9 : 後ろ 0.45 で混ぜる（約 63 度）。真横まで回すと前後が分からなくなる
-    let vx = px * 0.9 - _dir.x * 0.45;
-    let vz = pz * 0.9 - _dir.z * 0.45;
-    const l = Math.hypot(vx, vz) || 1;
-    vx /= l; vz /= l;
-    // 2 機が画面に収まる距離。間合に比例させないと、離れているときに
-    // 両端へ広がって自機が画面の端へ追いやられる
-    const md = 9.5 + dist * 0.62;
-    out.set((sp.x + tp.x) * 0.5 + vx * md,
-            Math.max(sp.y, tp.y) + 4.2,
-            (sp.z + tp.z) * 0.5 + vz * md);
-  }
-
-  // 中点から out の位置までが、どれだけ空いているか。回り込む側を決めるのに使う
-  _clearance(sp, tp, out) {
-    if (!this.colliders || !this.colliders.length) return 999;
-    _pivot.set((sp.x + tp.x) * 0.5, Math.max(sp.y, tp.y) + 2.2, (sp.z + tp.z) * 0.5);
-    _ray.copy(out).sub(_pivot);
-    const len = _ray.length();
-    if (len < 0.5) return 999;
-    _caster.set(_pivot, _ray.divideScalar(len));
-    _caster.far = len;
-    const hit = _caster.intersectObjects(this.colliders, false)[0];
-    return hit ? hit.distance : 999;
-  }
+  endFocus() { this._focusAng = undefined; }
 
   update(dt, self, target) {
     if (!self) return;
     const sp = self.pos;
-    const hasT = !!(target && target.alive);
 
-    if (hasT) {
+    if (target && target.alive) {
       _dir.copy(target.pos).sub(sp); _dir.y = 0;
       if (_dir.lengthSq() < 1e-4) _dir.set(0, 0, 1);
       _dir.normalize();
@@ -126,48 +82,18 @@ export class ChaseCamera {
       _dir.set(Math.sin(self.yaw), 0, Math.cos(self.yaw));
     }
 
-    const dist = hasT ? Math.hypot(target.pos.x - sp.x, target.pos.z - sp.z) : 40;
-
-    // --- 格闘中の寄り ---
-    // 真後ろのままだと、突進中は敵がちょうど自機の陰に入って何も見えない。
-    // 横へ回り込んで 2 機を横から見る形にする
-    const inMelee = hasT && (self.st === 'rush' || self.st === 'swing');
-    const goal = inMelee ? 1 : 0;
-    // 入りは速く、戻りはゆっくり。斬り終わりにカメラが飛ぶと酔う
-    this.melee += (goal - this.melee) * (1 - Math.pow(goal > this.melee ? 0.004 : 0.22, dt));
-    if (!inMelee && this.melee < 0.02) this._sidePicked = false;
-    const m = this.melee;
+    const dist = target && target.alive ? Math.hypot(target.pos.x - sp.x, target.pos.z - sp.z) : 40;
 
     // 自機基準で組む。注視点に敵の高度をそのまま混ぜると、
     // 敵が上に居るときに自機が画面下に押し出されるので、寄与は 0.3 に抑える。
     const back = THREE.MathUtils.clamp(11 + dist * 0.12, 11, 22)
-      * (this.portrait ? 1.22 : 1) * (1 + this.intro * 0.6) * (1 - m * 0.22);
-    const camH = (4.8 + this.intro * 7.0) * (1 - m * 0.45) + m * 1.1;
+      * (this.portrait ? 1.22 : 1) * (1 + this.intro * 0.6);
+    const camH = 4.8 + this.intro * 7.0;                         // 自機からのカメラ高
     const ahead = THREE.MathUtils.clamp(dist * 0.55, 10, 34);    // 注視点を前に置く距離
-    const dy = hasT ? target.pos.y - sp.y : 0;
+    const dy = target && target.alive ? target.pos.y - sp.y : 0;
     const lookH = 1.2 + THREE.MathUtils.clamp(dy * 0.3, -3, 9);
 
-    // 回り込む向き。格闘の入り口で 1 回だけ左右を決める。
-    // 毎フレーム選び直すと、壁際でカメラが左右に暴れる
-    if (inMelee && !this._sidePicked) {
-      this._sidePicked = true;
-      const want = self.meleeSide < 0 ? -1 : 1;
-      this._meleePos(_side, sp, target.pos, want, dist);
-      const room = this._clearance(sp, target.pos, _side);
-      this._meleePos(_side, sp, target.pos, -want, dist);
-      const other = this._clearance(sp, target.pos, _side);
-      // 入れたい側が明らかに塞がっていたら反対へ回す
-      this.meleeSide = other > room + 3 ? -want : want;
-    }
-
     _want.set(sp.x - _dir.x * back, sp.y + camH, sp.z - _dir.z * back);
-    // 格闘の画作りは「近いほど強く」。突進の出だしはまだ遠いので後方視点のまま、
-    // 接触する頃に横からの画になる
-    const mf = m * THREE.MathUtils.clamp(1 - (dist - 6) / 20, 0, 1);
-    if (mf > 0.001 && hasT) {
-      this._meleePos(_side, sp, target.pos, this.meleeSide, dist);
-      _want.lerp(_side, mf);
-    }
     if (_want.y < 3.0) _want.y = 3.0;                            // 地面にめり込まない
 
     // ビルにめり込む場合は手前まで引き寄せる
@@ -183,19 +109,11 @@ export class ChaseCamera {
       }
     }
 
-    // 格闘中は機体が速く動くので、追従も速くする
-    const follow = 0.0006 * (1 - m) + 0.00006 * m;
-    this.pos.lerp(_want, 1 - Math.pow(follow, dt));
+    const k = 1 - Math.pow(0.0006, dt);
+    this.pos.lerp(_want, k);
 
     _look.set(sp.x + _dir.x * ahead, sp.y + lookH, sp.z + _dir.z * ahead);
-    if (m > 0.001 && hasT) {
-      // 注視点を 2 機の中点へ寄せる。これをしないと横から見ても
-      // 画面の端に寄って、結局どちらかが切れる
-      _look.x += ((sp.x + target.pos.x) * 0.5 - _look.x) * m;
-      _look.y += ((sp.y + target.pos.y) * 0.5 + 1.7 - _look.y) * m;
-      _look.z += ((sp.z + target.pos.z) * 0.5 - _look.z) * m;
-    }
-    this.look.lerp(_look, 1 - Math.pow(0.0008 * (1 - m) + 0.00008 * m, dt));
+    this.look.lerp(_look, 1 - Math.pow(0.0008, dt));
 
     this.cam.position.copy(this.pos);
     if (this.shake > 0) {
