@@ -4,3 +4,4 @@ _archive
 .shots
 __pycache__
 src/mechs.local.js
+local/

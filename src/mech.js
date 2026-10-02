@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildMech, HIP_Y } from './mechmodel.js';
+import { buildMech, modelSpec, HIP_Y } from './mechmodel.js';
 import { Trail } from './glow.js';
 import * as C from './config.js';
 
@@ -25,7 +25,7 @@ export class Mech {
     this.world = world;
     this.isPlayer = false;
 
-    this.root = buildMech(data.palette, data.shape);
+    this.root = buildMech(data.palette, data.shape, modelSpec(data.model));
     world.scene.add(this.root);
 
     // 振りの軌跡。刃はワールド座標で拾うのでシーン直下に置く

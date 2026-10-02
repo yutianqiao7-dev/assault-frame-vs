@@ -68,19 +68,170 @@ export const HIP_Y = 1.62;
 // 読み込みに失敗したら手続き生成のプリミティブにそのまま戻る。
 let PARTS = null;
 
-export async function loadMechParts(url, decoderPath) {
+let gltfLoader = null;
+function getLoader(decoderPath) {
+  if (gltfLoader) return gltfLoader;
   const draco = new DRACOLoader();
   draco.setDecoderPath(decoderPath);
   draco.setDecoderConfig({ type: 'wasm' });
-  const loader = new GLTFLoader();
-  loader.setDRACOLoader(draco);
-  const gltf = await loader.loadAsync(url);
+  gltfLoader = new GLTFLoader();
+  gltfLoader.setDRACOLoader(draco);
+  return gltfLoader;
+}
+
+export async function loadMechParts(url, decoderPath) {
+  const gltf = await getLoader(decoderPath).loadAsync(url);
   const map = new Map();
   for (const o of gltf.scene.children) map.set(o.name, o);
   PARTS = map;
   return map;
 }
 export function hasMechParts() { return !!PARTS; }
+
+// ---------- 機体まるごとの差し替え（個人用・開発サーバ限定） ----------
+// mechs.local.js で model を指定した機体は、骨組み（可動ピボット）だけ残して
+// 見た目を丸ごと GLB に置き換える。動き・当たり判定・武装は元の機体のまま。
+// GLB の約束（tools/blender_prepare_mech.py がこの形で書き出す）:
+//   * 部位ごとに pelvis / torso / head / armL / armR / legL / legR という名前のノードにまとめる。
+//     armL は「機体から見た左」= +X 側。どれにも入っていない物は胴に付く
+//   * 正面は +Z（Blender でテンキー 1 のフロントビューから顔が見える向き）
+//   * 任意: gun（右手の武器）, muzzle（銃口）, thruster*（背中の噴射口）,
+//     関節位置の空オブジェクト j_torso / j_head / j_armL / j_armR / j_legL / j_legR / j_handL / j_handR。
+//     関節が無ければ部位の外形から推定する
+// 大きさは全高が height（既定 3.0 = 標準の機体と同じ）になるよう自動で合わせる。
+const FULL_MODELS = new Map();
+const BODY_PARTS = ['pelvis', 'torso', 'head', 'armL', 'armR', 'legL', 'legR'];
+
+// mechs.local.js の model 指定を正規化する。'xxx.glb' だけでも、{ file, height, rotY, y } でもよい
+export function modelSpec(m) {
+  // 本番ビルドでは /__local/ が存在しないので、指定があっても使わない
+  if (!import.meta.env.DEV || !m) return null;
+  const s = typeof m === 'string' ? { file: m } : { ...m };
+  if (!s.file) return null;
+  s.url = /^(https?:)?\//.test(s.file) ? s.file : `/__local/models/${s.file}`;
+  return s;
+}
+
+// 戻り値: 読めなかったファイル名の配列
+export async function loadFullModels(specs, decoderPath) {
+  const loader = getLoader(decoderPath);
+  const failed = [];
+  for (const s of specs) {
+    if (FULL_MODELS.has(s.url)) continue;
+    try {
+      const gltf = await loader.loadAsync(s.url);
+      FULL_MODELS.set(s.url, gltf.scene);
+    } catch (e) {
+      console.warn(`機体モデル ${s.file} を読めませんでした (local/models/ に置いてありますか)`, e);
+      failed.push(s.file);
+    }
+  }
+  return failed;
+}
+export function hasFullModel(spec) { return !!(spec && FULL_MODELS.has(spec.url)); }
+
+function applyFullModel(root, u, thrusters, spec) {
+  const model = FULL_MODELS.get(spec.url).clone(true);
+  const V = () => new THREE.Vector3();
+  const find = (n) => model.getObjectByName(n);
+
+  // 1) 全高を合わせて、足を y=0、中心を原点に置く
+  const wrap = new THREE.Group();
+  wrap.rotation.y = THREE.MathUtils.degToRad(spec.rotY || 0);
+  wrap.add(model);
+  root.add(wrap);
+  wrap.updateMatrixWorld(true);
+  const all = new THREE.Box3().setFromObject(model, true);
+  const h = all.max.y - all.min.y;
+  if (!(h > 1e-6)) { root.remove(wrap); return false; }
+  const k = (spec.height || 3.0) / h;
+  const c = all.getCenter(V());
+  wrap.scale.setScalar(k);
+  wrap.position.set(-c.x * k, -all.min.y * k + (spec.y || 0), -c.z * k);
+
+  // 2) 手続き生成の見た目を外す（ピボット・噴射炎・サーベル・銃・影は残す）
+  const pivots = BODY_PARTS.map((n) => u[n]);
+  const keep = new Set([...pivots, ...thrusters, u.saber, u.gun, u.shadow]);
+  for (const pv of pivots) {
+    for (const ch of [...pv.children]) if (!keep.has(ch)) pv.remove(ch);
+  }
+  u.pack = null;
+
+  // 3) 関節を部位の位置へ動かす。親から順に（胴 → 頭・腕、腰 → 脚）
+  root.updateMatrixWorld(true);
+  const parts = {};
+  const boxes = {};
+  for (const n of BODY_PARTS) {
+    const o = find(n);
+    if (!o) continue;
+    parts[n] = o;
+    boxes[n] = new THREE.Box3().setFromObject(o, true);
+  }
+  const jointOf = (name) => { const o = find('j_' + name); return o ? o.getWorldPosition(V()) : null; };
+  // 外形からの推定。肩は肩アーマーが上に飛び出すぶん、上端から少し下げる
+  const guess = {
+    torso: (b) => V().set((b.min.x + b.max.x) / 2, b.min.y, (b.min.z + b.max.z) / 2),
+    head: (b) => V().set((b.min.x + b.max.x) / 2, b.min.y, (b.min.z + b.max.z) / 2),
+    armL: (b) => V().set((b.min.x + b.max.x) / 2, b.max.y - (b.max.y - b.min.y) * 0.18, (b.min.z + b.max.z) / 2),
+    legL: (b) => V().set((b.min.x + b.max.x) / 2, b.max.y - (b.max.y - b.min.y) * 0.04, (b.min.z + b.max.z) / 2),
+    hand: (b) => V().set((b.min.x + b.max.x) / 2, b.min.y + (b.max.y - b.min.y) * 0.08, (b.min.z + b.max.z) / 2),
+  };
+  guess.armR = guess.armL; guess.legR = guess.legL;
+  const place = (obj, target) => {
+    obj.parent.updateMatrixWorld(true);
+    obj.position.copy(obj.parent.worldToLocal(target.clone()));
+    obj.updateMatrixWorld(true);
+  };
+  for (const n of ['torso', 'head', 'armL', 'armR', 'legL', 'legR']) {
+    const t = jointOf(n) || (boxes[n] && guess[n](boxes[n]));
+    if (t) place(u[n], t);
+  }
+  // 手（銃とサーベルの持ち手）
+  const handR = jointOf('handR') || (boxes.armR && guess.hand(boxes.armR));
+  const handL = jointOf('handL') || (boxes.armL && guess.hand(boxes.armL));
+  if (handR) place(u.gun, handR);
+  if (handL) place(u.saber, handL);
+
+  // 4) 銃。モデル側に gun があれば差し替え、無ければ shape.gun の銃をそのまま持たせる
+  const gun = find('gun');
+  if (gun) {
+    const muzzleAt = jointOf('muzzle') || (() => {
+      const b = new THREE.Box3().setFromObject(gun, true);
+      return V().set((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, b.max.z);
+    })();
+    for (const ch of [...u.gun.children]) if (ch !== u.muzzle) u.gun.remove(ch);
+    u.gun.attach(gun);
+    place(u.muzzle, muzzleAt);
+  }
+
+  // 5) 背中の噴射炎を噴射口へ
+  const nozzles = [];
+  model.traverse((o) => { if (/^thruster/i.test(o.name)) nozzles.push(o.getWorldPosition(V())); });
+  const backFlames = thrusters.filter((t) => t.parent === u.torso);
+  backFlames.forEach((fl, i) => {
+    if (!nozzles.length) return;
+    const p = nozzles[i % nozzles.length];
+    place(fl, p);
+    fl.position.y -= 0.26; fl.position.z -= 0.40;   // 手続き生成の噴射口と炎の位置関係に合わせる
+  });
+
+  // 6) 部位をピボットへ付け替える。attach はワールド上の位置を保つので見た目は動かない
+  for (const n of BODY_PARTS) if (parts[n]) u[n].attach(parts[n]);
+  let leftovers = 0;
+  model.traverse((o) => { if (o.isMesh) leftovers++; });
+  if (leftovers) {
+    if (!Object.keys(parts).length) console.warn(`${spec.file}: 部位分けされていません。全体を胴に付けます（手足は動きません）`);
+    u.torso.attach(model);
+  }
+  root.remove(wrap);
+
+  root.traverse((o) => {
+    if (!o.isMesh || o === u.shadow) return;
+    o.castShadow = true;
+    if (o.isSkinnedMesh) console.warn(`${spec.file}: スキンメッシュ ${o.name} はそのまま動かせません。tools/blender_prepare_mech.py で書き出し直してください`);
+  });
+  return true;
+}
 
 // 機体ごとの配色。GLB 側のマテリアル名をパレットに割り当て直す。
 // legMain は「胸と脚 / 腰」のどちらを主色にするかの二色分けスイッチ
@@ -531,7 +682,7 @@ function addGunPart(gun, P, sh) {
   return GUN_REACH[sh.gun] ?? 0.9;
 }
 
-export function buildMech(P, shape = {}) {
+export function buildMech(P, shape = {}, model = null) {
   const sh = {
     head: 'visor', shoulder: 'pad', back: 'pack', gun: 'rifle',
     forearmFin: true, kneeGuard: true, calfThruster: false, legMain: false,
@@ -693,5 +844,6 @@ export function buildMech(P, shape = {}) {
   };
   root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   shadow.castShadow = false;
+  if (model && FULL_MODELS.has(model.url)) applyFullModel(root, root.userData, thrusters, model);
   return root;
 }

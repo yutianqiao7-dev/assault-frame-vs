@@ -27,6 +27,10 @@ export const MECH_OVERRIDES = {
       beam: '#ff5d7a',    // ビーム・サーベルの色
       flame: '#8fd6ff',   // スラスターの炎
     },
+    // 3D モデルを丸ごと差し替えるときは、tools/blender_prepare_mech.py で書き出した
+    // GLB を local/models/ に置いてファイル名を書く（palette と shape の見た目は使われなくなる）
+    //   model: 'mymech.glb',
+    //   model: { file: 'mymech.glb', height: 3.0, rotY: 0, y: 0 },
     // 見た目のパーツ。使える値は src/mechmodel.js の先頭のコメント参照
     //   head:     visor / mono / crest / horn / dome / twin / mask
     //   shoulder: pad / spike / shield / cannon / binder / drum / wing / blade

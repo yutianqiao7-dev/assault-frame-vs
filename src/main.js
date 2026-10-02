@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as C from './config.js';
 import { buildStage, prefetchStage, STAGES, STAGE_ORDER, DEFAULT_STAGE } from './stages.js';
 import { Mech, EMPTY_INPUT } from './mech.js';
-import { loadMechParts } from './mechmodel.js';
+import { loadMechParts, loadFullModels, modelSpec } from './mechmodel.js';
 import { applyLocalMechs } from './mechlocal.js';
 import { Projectiles, FX } from './combat.js';
 import { ChaseCamera } from './camera.js';
@@ -390,6 +390,14 @@ buildStagePicker();
     await loadMechParts(asset('models/mechparts.glb'), asset('draco/'));
   } catch (e) {
     console.warn('機体パーツを読み込めませんでした。簡易モデルで続行します', e);
+  }
+  // 個人用の機体モデル（mechs.local.js の model 指定）。開発サーバでだけ配っている
+  if (import.meta.env.DEV) {
+    const specs = Object.values(C.MECHS).map((m) => modelSpec(m.model)).filter(Boolean);
+    if (specs.length) {
+      const failed = await loadFullModels(specs, asset('draco/'));
+      console.info(`個人用の機体モデル: ${specs.length - failed.length}/${specs.length} 読み込み`);
+    }
   }
   try {
     await setStage(stageId);
